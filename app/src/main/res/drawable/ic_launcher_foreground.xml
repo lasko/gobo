@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  "The Minimalist Intersection": a flat grid crosshair with one off-white and one
+  black stone resting on adjacent intersections. Drawn in the 108dp adaptive-icon
+  viewport; all content sits inside the central safe zone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Grid lines (crosshair) -->
+    <path
+        android:strokeColor="#475569"
+        android:strokeWidth="2.5"
+        android:pathData="M26,50 L82,50 M50,26 L50,82 M26,68 L82,68 M68,26 L68,82" />
+
+    <!-- White stone on the upper-left intersection -->
+    <path
+        android:fillColor="#E2E8F0"
+        android:pathData="M50,50 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0" />
+
+    <!-- Black stone on the lower-right intersection (subtle ring to lift it off the grid) -->
+    <path
+        android:fillColor="#000000"
+        android:strokeColor="#475569"
+        android:strokeWidth="1.5"
+        android:pathData="M68,68 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0" />
+</vector>

@@ -1,0 +1,57 @@
+# ─── Gradle ───────────────────────────────────────────────────────────────
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ─── Stray nested checkout (accidental clone artifact) ────────────────────
+github.com/
+
+# ─── Local & machine-specific config ──────────────────────────────────────
+# Contains sdk.dir (an absolute path to YOUR Android SDK). Never commit.
+local.properties
+
+# ─── Secrets / signing (none in repo today — keep it that way) ────────────
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+google-services.json
+*.env
+.env
+
+# MCP server config — may reference local tokens; keep it out of the public repo
+.mcp.json
+
+# Claude Code personal/local settings (machine-specific; e.g. MCP approvals)
+.claude/settings.local.json
+
+# ─── Android Studio / IntelliJ ────────────────────────────────────────────
+# Ignore user-specific IDE state but keep shareable project config
+# (.idea/codeStyles, etc.) so the team's formatting stays consistent.
+*.iml
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/deploymentTargetSelector.xml
+.idea/deploymentTargetDropDown.xml
+.idea/runConfigurations.xml
+.idea/gradle.xml
+.idea/compiler.xml
+.idea/misc.xml
+.idea/deviceManager.xml
+.idea/migrations.xml
+.idea/.name
+.idea/*.local
+
+# ─── OS cruft ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs & misc ──────────────────────────────────────────────────────────
+*.log
+*.hprof
