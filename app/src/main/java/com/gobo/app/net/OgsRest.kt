@@ -5,10 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -38,43 +34,14 @@ class OgsRest(private val store: TokenStore) {
         val token = store.accessToken ?: return@withContext Result.failure(
             IllegalStateException("Not logged in")
         )
-        get(Ogs.UI_CONFIG, token) { body ->
-            val root = json.parseToJsonElement(body).jsonObject
-            val jwt = root["user_jwt"]?.jsonPrimitive?.contentOrNull
-                ?: error("no user_jwt in config")
-            val user = root["user"]?.jsonObject ?: JsonObject(emptyMap())
-            UiConfig(
-                userJwt = jwt,
-                playerId = user["id"]?.jsonPrimitive?.intOrNull ?: 0,
-                username = user["username"]?.jsonPrimitive?.contentOrNull ?: "",
-            )
-        }
+        get(Ogs.UI_CONFIG, token) { body -> parseUiConfig(body) }
     }
 
     suspend fun fetchActiveGames(myPlayerId: Int): Result<List<GameSummary>> = withContext(Dispatchers.IO) {
         val token = store.accessToken ?: return@withContext Result.failure(
             IllegalStateException("Not logged in")
         )
-        get(Ogs.OVERVIEW, token) { body ->
-            val root = json.parseToJsonElement(body).jsonObject
-            val games = root["active_games"]?.jsonArray ?: return@get emptyList()
-            games.mapNotNull { el ->
-                val g = el.jsonObject
-                val id = g["id"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
-                val size = g["width"]?.jsonPrimitive?.intOrNull ?: 19
-                val players = g["players"]?.jsonObject
-                val blackPlayer = players?.get("black")?.jsonObject
-                val whitePlayer = players?.get("white")?.jsonObject
-                val blackName = blackPlayer?.get("username")?.jsonPrimitive?.contentOrNull ?: "Black"
-                val whiteName = whitePlayer?.get("username")?.jsonPrimitive?.contentOrNull ?: "White"
-                // clock.current_player holds the player ID whose turn it is
-                val gameJson = g["json"]?.jsonObject
-                val currentPlayer = gameJson
-                    ?.get("clock")?.jsonObject
-                    ?.get("current_player")?.jsonPrimitive?.intOrNull ?: 0
-                GameSummary(id, size, blackName, whiteName, myTurn = currentPlayer == myPlayerId)
-            }
-        }
+        get(Ogs.OVERVIEW, token) { body -> parseActiveGames(body, myPlayerId) }
     }
 
     /**
@@ -85,13 +52,7 @@ class OgsRest(private val store: TokenStore) {
         val token = store.accessToken ?: return@withContext Result.failure(
             IllegalStateException("Not logged in")
         )
-        get(Ogs.game(gameId), token) { body ->
-            val root = json.parseToJsonElement(body).jsonObject
-            GameResult(
-                outcome = root["outcome"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                winnerId = root["winner"]?.jsonPrimitive?.intOrNull,
-            )
-        }
+        get(Ogs.game(gameId), token) { body -> parseGameResult(body) }
     }
 
     /**

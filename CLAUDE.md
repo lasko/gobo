@@ -88,6 +88,19 @@ Follow `kotlin.code.style=official`. Mirror the existing files — they are cons
 - **Naming:** `*Screen` = Compose UI (body-only where a parent scaffold owns the top bar), `*ViewModel` = state holder. Private composables for a screen live in the same file.
 - Compose: hoist state, pass `onX` lambdas down; ViewModels never reference Compose or Android UI types.
 
+## Documentation and Testing Discipline
+
+Code, its documentation, and its tests move together in the **same change** — never one without the others. This is what keeps the project from silently regressing or growing bugs outside the reach of the suite. Hold the line on all of it:
+
+- **Extract logic so it can be tested.** Any non-trivial rule (game rules, parsing, encoding, request/response shaping) goes in a **pure top-level function** with no `Context`/`Android`/OkHttp/Compose deps — the `buildChallengeBody`, `parseActiveBots`, `replayMoves`, `parse*` pattern. If you find yourself unable to test something because it needs a socket or a `Context`, that's the signal to extract the pure core, not to skip the test. ViewModels and I/O classes should *call* these functions, not embed the logic inline.
+- **Adding code → add tests.** New pure logic ships with unit tests covering the happy path **and** the edges that matter (boundaries, defaults/missing fields, the illegal/empty cases). No PR adds untested rule logic.
+- **Fixing a bug → add the regression test first.** Reproduce it as a failing test, then fix it, so the bug can't come back. (e.g. a capture-count or ko miscalc gets a `replayMoves` case.)
+- **Editing behavior → update the tests and the prose.** If you change what a function does, update its tests in the same commit; if you change a protocol/quirk/flow, update the relevant comment **and** the matching CLAUDE.md section (OGS cheat-sheet, Gotchas, etc.). Stale docs are worse than none.
+- **Deleting code → delete its tests and docs.** Remove the now-dead tests, KDoc, and any CLAUDE.md / comment references in the same change. Don't leave orphans.
+- **Keep the coverage list current.** When you add or remove a test file, update the bullet list under [Testing](#testing). Treat it as the index of what's actually guarded.
+- **Document the *why*, not the *what*** (house style above) — especially privacy rationale and OGS protocol quirks. A KDoc on every public function/`data class`; a one-line `//` on any non-obvious branch.
+- **What unit tests can't reach** (Compose UI, colors, real socket/REST timing), cover with the manual smoke flow below and say so in the PR — don't pretend a coverage gap doesn't exist.
+
 ## Non-negotiable constraints
 
 These are the reason the app exists — verify any change preserves them:
@@ -102,9 +115,11 @@ These are the reason the app exists — verify any change preserves them:
 ## Testing
 
 JVM unit tests live in `app/src/test/java/` (JUnit4, no Android framework / Robolectric needed). Run with `.\gradlew.bat testDebugUnitTest`. Current coverage:
-- `board/BoardStateTest` — capture logic: single stone, multi-stone group, corner, no-capture-with-liberty.
+- `board/BoardStateTest` — capture logic (single stone, multi-stone group, corner, no-capture-with-liberty) and move legality (`legality`/`koPointAfter`: occupied, suicide, capture-is-not-suicide, simple ko detected + forbidden + cleared).
+- `board/MoveReplayTest` — `replayMoves`: turn alternation, per-side prisoner counts, last-move tracking, ko recovery, and pass-dissolves-ko.
 - `board/OgsCoordTest` — encode/decode incl. pass and a full 19×19 round-trip.
 - `net/ChallengesTest` — `formatRank` kyu/dan boundaries, `parseActiveBots` (filtering declining bots, defaults, sort), and `buildChallengeBody` JSON shape.
+- `net/OgsParseTest` — `parseUiConfig` (jwt + defaults + throws without jwt), `parseActiveGames` (the `myTurn`/`current_player` logic, defaults, empty), and `parseGameResult`.
 
 Keep pure logic in plain functions (e.g. `buildChallengeBody` lives in `net/Challenges.kt`, **not** as a method on `OgsRest`, so tests don't need a `Context`/`TokenStore`). When adding testable logic, prefer this top-level-function pattern over private members. No instrumented (`androidTest`) tests yet.
 
