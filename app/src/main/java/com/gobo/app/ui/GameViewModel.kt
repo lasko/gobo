@@ -10,6 +10,7 @@ import com.gobo.app.board.replayMoves
 import com.gobo.app.net.ChatMessage
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
+import com.gobo.app.net.appendChat
 import com.gobo.app.net.parseGameChat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -241,10 +242,14 @@ class GameViewModel(
         _myTurn.value = mine != null && mine == nextColor
     }
 
-    /** Append a received chat line. No-op for non-text bodies (shared variations). */
+    /**
+     * Append a received chat line, ignoring non-text bodies and any line we already have —
+     * OGS re-sends the chat log on lifecycle events (e.g. at game end), so the append must
+     * be idempotent (see [appendChat]).
+     */
     private fun handleChat(data: JsonElement) {
         val message = parseGameChat(data) ?: return
-        _chat.value = _chat.value + message
+        _chat.value = appendChat(_chat.value, message)
     }
 
     /**

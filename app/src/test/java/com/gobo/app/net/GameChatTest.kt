@@ -75,4 +75,31 @@ class GameChatTest {
         assertNull(msg["auth"])
         assertNull(msg["username"])
     }
+
+    @Test
+    fun usesChatIdForIdentityAndCompositeFallback() {
+        val withId = parse("""{"message":{"chat_id":"abc123","player_id":7,"body":"hi","date":5}}""")
+        assertEquals("abc123", withId?.id)
+        // No chat_id -> a stable content composite so re-sends still de-dupe.
+        val noId = parse("""{"message":{"player_id":7,"body":"hi","date":5}}""")
+        assertEquals("7:5:hi", noId?.id)
+    }
+
+    @Test
+    fun appendChatIgnoresAlreadyPresentLines() {
+        // Regression: OGS re-sends the chat log at game end; appending must be idempotent
+        // or the whole history duplicates.
+        val hello = ChatMessage(id = "c1", playerId = 7, username = "me", body = "Hello", date = 1)
+        val help = ChatMessage(id = "c2", playerId = 7, username = "me", body = "Help", date = 2)
+
+        var chat = appendChat(emptyList(), hello)
+        chat = appendChat(chat, help)
+        assertEquals(2, chat.size)
+
+        // Re-send of the same two lines (same ids) adds nothing.
+        chat = appendChat(chat, hello)
+        chat = appendChat(chat, help)
+        assertEquals(2, chat.size)
+        assertEquals(listOf("Hello", "Help"), chat.map { it.body })
+    }
 }
