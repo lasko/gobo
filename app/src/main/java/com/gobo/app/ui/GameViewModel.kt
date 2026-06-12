@@ -7,8 +7,10 @@ import com.gobo.app.board.MoveLegality
 import com.gobo.app.board.OgsCoord
 import com.gobo.app.board.Stone
 import com.gobo.app.board.replayMoves
+import com.gobo.app.net.ChatMessage
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
+import com.gobo.app.net.parseGameChat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
@@ -74,6 +76,10 @@ class GameViewModel(
     private val _captures = MutableStateFlow(0 to 0)
     val captures = _captures.asStateFlow()
 
+    /** In-game chat, oldest first. Stays empty unless chat was opted in for this game. */
+    private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val chat = _chat.asStateFlow()
+
     private var gameId: Long = 0
     private var nextColor = Stone.BLACK
     private var blackId = 0
@@ -83,7 +89,11 @@ class GameViewModel(
     /** Dead-stone set proposed during scoring, in OGS encoding; echoed back on accept. */
     private var proposedRemoval = ""
 
-    fun start(gameId: Long) {
+    /**
+     * @param chatEnabled when true, request chat on connect so `game/<id>/chat` events
+     *   arrive and populate [chat]. Off by default keeps the connect minimal (no chat).
+     */
+    fun start(gameId: Long, chatEnabled: Boolean = false) {
         this.gameId = gameId
         viewModelScope.launch {
             val cfg = rest.fetchUiConfig().getOrElse {
@@ -92,7 +102,7 @@ class GameViewModel(
             }
             socket.connect {
                 socket.authenticate(cfg.userJwt)
-                socket.gameConnect(gameId, playerId = cfg.playerId, chat = false)
+                socket.gameConnect(gameId, playerId = cfg.playerId, chat = chatEnabled)
             }
             launch { collectEvents() }
             launch { keepAlive() }
@@ -115,6 +125,7 @@ class GameViewModel(
                 event.endsWith("/gamedata") -> handleSnapshot(data)
                 event.endsWith("/phase") -> handlePhase(data)
                 event.endsWith("/removed_stones_accepted") -> handleRemovalAccepted(data)
+                event.endsWith("/chat") -> handleChat(data)
                 event == "notification" -> handleNotification(data)
             }
         }
@@ -225,6 +236,12 @@ class GameViewModel(
     private fun updateTurn() {
         val mine = _myColor.value
         _myTurn.value = mine != null && mine == nextColor
+    }
+
+    /** Append a received chat line. No-op for non-text bodies (shared variations). */
+    private fun handleChat(data: JsonElement) {
+        val message = parseGameChat(data) ?: return
+        _chat.value = _chat.value + message
     }
 
     /**

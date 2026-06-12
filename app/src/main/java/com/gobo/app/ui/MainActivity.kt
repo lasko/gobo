@@ -9,6 +9,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +30,7 @@ import com.gobo.app.board.BoardState
 import com.gobo.app.board.GoBoard
 import com.gobo.app.board.MoveLegality
 import com.gobo.app.board.Stone
+import com.gobo.app.net.ChatMessage
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
 import com.gobo.app.net.UiConfig
@@ -149,10 +153,20 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
     val gid = gameId
     if (gid != null) {
         val vm = remember(gid) { GameViewModel(rest, OgsSocket(), config.playerId) }
-        LaunchedEffect(gid) { vm.start(gid) }
         val confirmMoves by settings.confirmMoves.collectAsState()
+        val chatEnabled by settings.chatEnabled.collectAsState()
+        // chatEnabled is read once when the game opens; toggling it mid-game takes
+        // effect on the next game (the socket connect flag is set at start()).
+        LaunchedEffect(gid) { vm.start(gid, chatEnabled) }
         ImmersiveMode()
-        GameScreen(vm, confirmMoves = confirmMoves, onBack = { gameId = null }, onLogout = onLogout)
+        GameScreen(
+            vm,
+            confirmMoves = confirmMoves,
+            chatEnabled = chatEnabled,
+            myPlayerId = config.playerId,
+            onBack = { gameId = null },
+            onLogout = onLogout,
+        )
         return
     }
 
@@ -234,11 +248,14 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
                     Destination.Settings -> {
                         val themeMode by settings.themeMode.collectAsState()
                         val confirmMoves by settings.confirmMoves.collectAsState()
+                        val chatEnabled by settings.chatEnabled.collectAsState()
                         SettingsScreen(
                             themeMode = themeMode,
                             onThemeChange = settings::setThemeMode,
                             confirmMoves = confirmMoves,
                             onConfirmMovesChange = settings::setConfirmMoves,
+                            chatEnabled = chatEnabled,
+                            onChatEnabledChange = settings::setChatEnabled,
                         )
                     }
                 }
@@ -252,6 +269,8 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
 private fun GameScreen(
     vm: GameViewModel,
     confirmMoves: Boolean,
+    chatEnabled: Boolean,
+    myPlayerId: Int,
     onBack: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -262,10 +281,18 @@ private fun GameScreen(
     val myTurn by vm.myTurn.collectAsState()
     val lastMove by vm.lastMove.collectAsState()
     val captures by vm.captures.collectAsState()
+    val chat by vm.chat.collectAsState()
 
     val view = LocalView.current
     var ghost by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var invalidCell by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    // Chat is read-only and opt-in; the sheet is reachable only when enabled. Unread =
+    // messages arrived since the sheet was last open.
+    var showChat by remember { mutableStateOf(false) }
+    var seenCount by remember { mutableStateOf(0) }
+    val unreadChat = (chat.size - seenCount).coerceAtLeast(0)
+    LaunchedEffect(showChat, chat.size) { if (showChat) seenCount = chat.size }
 
     // Drop any pending preview when it's no longer our move.
     LaunchedEffect(myTurn, phase) { if (!myTurn || phase != GamePhase.Playing) ghost = null }
@@ -315,11 +342,26 @@ private fun GameScreen(
                     TextButton(onClick = onBack) { Text("← Games") }
                 },
                 actions = {
+                    if (chatEnabled) {
+                        IconButton(onClick = { showChat = true }) {
+                            val glyph = @Composable {
+                                Text("💬", style = MaterialTheme.typography.titleMedium)
+                            }
+                            if (unreadChat > 0) BadgedBox(badge = { Badge() }) { glyph() } else glyph()
+                        }
+                    }
                     TextButton(onClick = onLogout) { Text("Log out") }
                 },
             )
         }
     ) { padding ->
+        if (showChat) {
+            ChatSheet(
+                messages = chat,
+                myPlayerId = myPlayerId,
+                onDismiss = { showChat = false },
+            )
+        }
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (val p = phase) {
                 // Don't show a board until the server confirms the game exists.
@@ -454,6 +496,66 @@ private fun PlayerTag(glyph: String, name: String, captures: Int, alignEnd: Bool
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * Read-only in-game chat in a bottom sheet. Sending is intentionally absent for now — it
+ * needs `game_chat_auth` and player metadata we don't yet capture (tracked separately).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatSheet(
+    messages: List<ChatMessage>,
+    myPlayerId: Int,
+    onDismiss: () -> Unit,
+) {
+    val listState = rememberLazyListState()
+    // Keep the newest message in view as lines arrive while the sheet is open.
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+        ) {
+            Text("Chat", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            if (messages.isEmpty()) {
+                Text(
+                    "No messages yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(messages) { msg -> ChatLine(msg, isMine = msg.playerId == myPlayerId) }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Read-only — chat is shown but can't be sent yet.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatLine(msg: ChatMessage, isMine: Boolean) {
+    Column {
+        Text(
+            msg.username.ifBlank { if (isMine) "You" else "Player" },
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isMine) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(msg.body, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
