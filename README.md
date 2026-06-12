@@ -85,9 +85,9 @@ JVM unit tests (no emulator needed) cover the board capture logic, the OGS coord
 
 ## Status & known gaps
 
-Gobo is a working client, not a finished one. The board applies server-authoritative state and computes captures locally for responsiveness, but full **Go rules** (ko, scoring, the stone-removal phase) are not implemented client-side — for those, reference or port [goban](https://github.com/online-go/goban), the official TypeScript engine OGS itself uses, rather than rolling your own.
+Gobo is a working client, not a finished one. The board applies server-authoritative state and computes captures and move legality (suicide, simple ko) locally for responsiveness, and the stone-removal / scoring phase has a basic accept-and-resume flow. Full Go rule enforcement is otherwise left to the server — for a complete local engine, reference or port [goban](https://github.com/online-go/goban), the official TypeScript engine OGS itself uses, rather than rolling your own.
 
-Not yet implemented: clock/timer display, undo, the stone-removal & scoring UI, in-game chat, and a "waiting for opponent" view for open challenges.
+Planned features and known gaps are tracked as [GitHub Issues](https://github.com/lasko/gobo/issues), not duplicated here.
 
 ## Contributing
 
