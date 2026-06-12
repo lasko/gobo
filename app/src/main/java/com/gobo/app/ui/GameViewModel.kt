@@ -15,6 +15,7 @@ import com.gobo.app.net.appendChat
 import com.gobo.app.net.parseClock
 import com.gobo.app.net.parseGameChat
 import com.gobo.app.net.parseGameChatLog
+import com.gobo.app.net.parseUndoMoveCount
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
@@ -92,6 +93,15 @@ class GameViewModel(
     private val _clock = MutableStateFlow<GameClock?>(null)
     val clock = _clock.asStateFlow()
 
+    /**
+     * Whether the Undo button is actionable: true only while [GamePhase.Playing] when the most
+     * recent move on the board is the local player's (i.e. it's the opponent's turn) and no undo
+     * is already pending. Bots accept undo, so this is the realistic use — take back a misclick
+     * before the opponent has replied. False otherwise (the button shows disabled).
+     */
+    private val _undoEnabled = MutableStateFlow(false)
+    val undoEnabled = _undoEnabled.asStateFlow()
+
     private var gameId: Long = 0
     private var nextColor = Stone.BLACK
     private var blackId = 0
@@ -102,6 +112,19 @@ class GameViewModel(
     private var proposedRemoval = ""
     /** Moves played so far; the move a chat line is attached to when sending. */
     private var moveNumber = 0
+    /**
+     * The full move list (x, y), passes as (-1, -1) — kept so an accepted undo can rebuild the
+     * position by dropping the last move(s) and replaying ([replayMoves]); OGS sends no fresh
+     * snapshot on undo, it expects the client to step back locally.
+     */
+    private val moves = mutableListOf<Pair<Int, Int>>()
+    /**
+     * True between sending an undo request and the opponent accepting/declining (or superseding)
+     * it. Surfaced so the UI can show a transient "requested" status — many bots (amybot included)
+     * ignore undo, so the player needs feedback that the request went out even when nothing reverts.
+     */
+    private val _undoRequested = MutableStateFlow(false)
+    val undoRequested = _undoRequested.asStateFlow()
     /** Whether chat was opted in for this game — gates reading the snapshot's chat log. */
     private var chatEnabled = false
 
@@ -144,6 +167,8 @@ class GameViewModel(
                 event.endsWith("/gamedata") -> handleSnapshot(data)
                 event.endsWith("/phase") -> handlePhase(data)
                 event.endsWith("/removed_stones_accepted") -> handleRemovalAccepted(data)
+                event.endsWith("/undo_accepted") -> handleUndoAccepted(data)
+                event.endsWith("/undo_canceled") -> handleUndoCanceled()
                 event.endsWith("/clock") -> handleClock(data)
                 event.endsWith("/chat") -> handleChat(data)
                 event == "notification" -> handleNotification(data)
@@ -165,6 +190,9 @@ class GameViewModel(
         val replay = replayMoves(moveList, size)
         nextColor = replay.nextColor
         moveNumber = moveList.size
+        // Track the move list so an accepted undo can replay a truncated copy.
+        moves.clear()
+        moves.addAll(moveList)
 
         // Prefer the server's authoritative board array (captures and handicap already
         // applied); fall back to the locally replayed position when the field is absent.
@@ -266,6 +294,22 @@ class GameViewModel(
     private fun updateTurn() {
         val mine = _myColor.value
         _myTurn.value = mine != null && mine == nextColor
+        refreshUndoAvailability()
+    }
+
+    /**
+     * Undo is offered only to take back the local player's own most recent move: while playing,
+     * with at least one move on the board, the side that just moved ([nextColor]'s opponent) is
+     * us, and no request is already in flight. After the opponent replies the last move is theirs,
+     * so the button disables — matching the issue's "your own most recent move" rule.
+     */
+    private fun refreshUndoAvailability() {
+        val mine = _myColor.value
+        _undoEnabled.value = !_undoRequested.value &&
+            _phase.value == GamePhase.Playing &&
+            mine != null &&
+            moves.isNotEmpty() &&
+            mine != nextColor
     }
 
     /**
@@ -342,6 +386,10 @@ class GameViewModel(
         }
         nextColor = if (nextColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
         moveNumber++
+        moves.add(x to y)
+        // A real move from either side supersedes any pending undo (e.g. the bot replied
+        // instead of accepting), so clear it before re-evaluating availability.
+        _undoRequested.value = false
         _board.value = b
         updateTurn()
     }
@@ -364,6 +412,42 @@ class GameViewModel(
     fun resign() {
         if (_phase.value != GamePhase.Playing) return
         socket.gameResign(gameId)
+    }
+
+    /**
+     * Request to take back your last move. No-op unless [undoEnabled]; we mark the request pending
+     * (disabling the button) and wait for the opponent's `undo_accepted` — bots accept, humans may
+     * not, so nothing reverts optimistically.
+     */
+    fun requestUndo() {
+        if (!_undoEnabled.value) return
+        _undoRequested.value = true
+        refreshUndoAvailability()
+        socket.requestUndo(gameId, moveNumber)
+    }
+
+    /**
+     * The opponent accepted our undo. OGS sends no fresh snapshot — it expects the client to step
+     * back — so drop the taken-back move(s) and rebuild the position by replaying what remains.
+     */
+    private fun handleUndoAccepted(data: JsonElement) {
+        if (moves.isEmpty()) return
+        repeat(parseUndoMoveCount(data)) { if (moves.isNotEmpty()) moves.removeAt(moves.lastIndex) }
+        val replay = replayMoves(moves.toList(), _board.value.size)
+        nextColor = replay.nextColor
+        moveNumber = moves.size
+        koPoint = replay.koPoint
+        _board.value = replay.board
+        _captures.value = replay.capturedByBlack to replay.capturedByWhite
+        _lastMove.value = replay.lastMove
+        _undoRequested.value = false
+        updateTurn()
+    }
+
+    /** The undo request was withdrawn/declined; re-enable the button if still our move. */
+    private fun handleUndoCanceled() {
+        _undoRequested.value = false
+        refreshUndoAvailability()
     }
 
     /**

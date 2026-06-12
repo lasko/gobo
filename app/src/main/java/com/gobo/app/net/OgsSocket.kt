@@ -112,6 +112,15 @@ class OgsSocket {
     }
 
     /**
+     * Ask to take back to [moveNumber] (the current move count). Identity comes from the prior
+     * [authenticate]; the opponent (a bot, in our case) must accept before anything reverts —
+     * we act on the resulting `game/<id>/undo_accepted` event, not optimistically.
+     */
+    fun requestUndo(gameId: Long, moveNumber: Int) {
+        send("game/undo/request", buildUndoRequest(gameId, moveNumber))
+    }
+
+    /**
      * Send an in-game chat line. Identity comes from the prior [authenticate], so the
      * payload is just the game, text, the [moveNumber] it's attached to, and the channel
      * [type] ("main" for normal play). The server echoes it back as a `game/<id>/chat`
