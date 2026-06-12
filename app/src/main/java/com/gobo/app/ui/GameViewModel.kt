@@ -87,6 +87,10 @@ class GameViewModel(
     private val _myTurn = MutableStateFlow(false)
     val myTurn = _myTurn.asStateFlow()
 
+    /** Colour to move next. Used for the spectator's "whose turn" status (a watcher has no side). */
+    private val _toMove = MutableStateFlow(Stone.BLACK)
+    val toMove = _toMove.asStateFlow()
+
     /** (x, y) of the most recent stone, for the last-move marker; null after a pass. */
     private val _lastMove = MutableStateFlow<Pair<Int, Int>?>(null)
     val lastMove = _lastMove.asStateFlow()
@@ -330,6 +334,7 @@ class GameViewModel(
     private fun updateTurn() {
         val mine = _myColor.value
         _myTurn.value = mine != null && mine == nextColor
+        _toMove.value = nextColor
         refreshUndoAvailability()
     }
 
@@ -537,8 +542,15 @@ class GameViewModel(
         }
     }
 
-    override fun onCleared() {
+    /**
+     * Tear down the socket. Called from [onCleared], but also explicitly from the UI on leaving the
+     * game (the screen creates this via `remember`, not `viewModel()`, so `onCleared` won't fire on
+     * its own — and a live socket would keep auto-reconnecting in the background).
+     */
+    fun close() {
         if (gameId != 0L) socket.gameDisconnect(gameId)
         socket.close()
     }
+
+    override fun onCleared() = close()
 }
