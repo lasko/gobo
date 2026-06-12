@@ -1,6 +1,7 @@
 package com.gobo.app.net
 
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -65,12 +66,16 @@ data class ChallengeResult(val challengeId: Long, val gameId: Long, val vsBot: B
  * Android deps) so it can be unit-tested directly.
  */
 fun buildChallengeBody(spec: ChallengeSpec): JsonObject = buildJsonObject {
+    // Mirrors the OGS web client's challenge POST (online-go.com ChallengeModal). The open-seek
+    // endpoint (`/challenges/`) 500s without the full set; the bot endpoint (`/players/{id}/challenge/`)
+    // is more forgiving, which is why bot games worked but human/open seeks didn't (#21).
     put("initialized", false)
-    // Wide range so an open challenge is acceptable to any rank.
+    put("challenger_color", spec.color)
+    put("invite_only", false)
+    // -1000/1000 is OGS' "no rank restriction" sentinel — exactly what the web client posts.
     put("min_ranking", -1000)
     put("max_ranking", 1000)
-    put("challenger_color", spec.color)
-    put("aga_ranked", false)
+    put("rengo_auto_start", 0)
     putJsonObject("game") {
         put("name", spec.name.ifBlank { "Friendly Match" })
         put("rules", spec.rules)
@@ -79,16 +84,19 @@ fun buildChallengeBody(spec: ChallengeSpec): JsonObject = buildJsonObject {
         put("height", spec.boardSize)
         put("handicap", spec.handicap)
         put("komi_auto", if (spec.komiAuto) "automatic" else "custom")
+        // Only sent for custom komi; in automatic mode the server computes it (web client omits it).
         if (!spec.komiAuto) put("komi", spec.komi)
         put("disable_analysis", spec.disableAnalysis)
-        put("pause_on_weekends", spec.pauseOnWeekends)
+        put("initial_state", JsonNull)
         put("private", spec.isPrivate)
-        put("speed", spec.speed)
+        put("pause_on_weekends", spec.pauseOnWeekends)
         put("time_control", spec.timeControl)
         putJsonObject("time_control_parameters") {
             put("system", spec.timeControl)
             put("speed", spec.speed)
             put("pause_on_weekends", spec.pauseOnWeekends)
+            // The web client duplicates the system here under `time_control` too.
+            put("time_control", spec.timeControl)
             spec.timeParams.forEach { (k, v) -> put(k, v) }
         }
     }
