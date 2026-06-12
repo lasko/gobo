@@ -3,6 +3,7 @@ package com.gobo.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gobo.app.board.BoardState
+import com.gobo.app.board.MoveLegality
 import com.gobo.app.board.OgsCoord
 import com.gobo.app.board.Stone
 import com.gobo.app.net.OgsRest
@@ -76,6 +77,8 @@ class GameViewModel(
     private var nextColor = Stone.BLACK
     private var blackId = 0
     private var whiteId = 0
+    /** Point forbidden to the side now to move by simple ko, or null. Drives local KO flashes. */
+    private var koPoint: Pair<Int, Int>? = null
     /** Dead-stone set proposed during scoring, in OGS encoding; echoed back on accept. */
     private var proposedRemoval = ""
 
@@ -166,8 +169,10 @@ class GameViewModel(
 
         // Captures aren't in the snapshot, so replay the move list on a scratch board
         // to recover each side's running prisoner count (correct even on reconnect).
+        // The same replay recovers any live ko, so a reconnect mid-ko still flashes.
         var capByBlack = 0
         var capByWhite = 0
+        var replayedKo: Pair<Int, Int>? = null
         BoardState(size).also { scratch ->
             var c = Stone.BLACK
             obj["moves"]?.jsonArray?.forEach { mv ->
@@ -175,13 +180,17 @@ class GameViewModel(
                 val mx = a.getOrNull(0)?.jsonPrimitive?.intOrNull
                 val my = a.getOrNull(1)?.jsonPrimitive?.intOrNull
                 if (mx != null && my != null && mx >= 0 && my >= 0) {
-                    val captured = scratch.applyMove(mx, my, c)
-                    if (c == Stone.BLACK) capByBlack += captured else capByWhite += captured
+                    val captured = scratch.place(mx, my, c)
+                    if (c == Stone.BLACK) capByBlack += captured.size else capByWhite += captured.size
+                    replayedKo = scratch.koPointAfter(mx, my, captured)
+                } else {
+                    replayedKo = null // a pass dissolves any ko
                 }
                 c = if (c == Stone.BLACK) Stone.WHITE else Stone.BLACK
             }
         }
         _captures.value = capByBlack to capByWhite
+        koPoint = replayedKo
 
         _board.value = fresh
         val lastMv = obj["moves"]?.jsonArray?.lastOrNull()?.jsonArray
@@ -287,19 +296,31 @@ class GameViewModel(
             for (row in 0 until src.size) for (col in 0 until src.size) dst.grid[row][col] = src.grid[row][col]
         }
         if (x >= 0 && y >= 0) {
-            val captured = b.applyMove(x, y, nextColor)
-            if (captured > 0) {
+            val captured = b.place(x, y, nextColor)
+            if (captured.isNotEmpty()) {
                 val (cb, cw) = _captures.value
                 _captures.value =
-                    if (nextColor == Stone.BLACK) (cb + captured) to cw else cb to (cw + captured)
+                    if (nextColor == Stone.BLACK) (cb + captured.size) to cw else cb to (cw + captured.size)
             }
+            koPoint = b.koPointAfter(x, y, captured)
             _lastMove.value = x to y
         } else {
+            koPoint = null // a pass dissolves any ko
             _lastMove.value = null
         }
         nextColor = if (nextColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
         _board.value = b
         updateTurn()
+    }
+
+    /**
+     * Local legality of a prospective move at (x, y), for immediate invalid-tap
+     * feedback. Uses the live board plus any active ko point; the server remains
+     * authoritative, so this only reports the always-illegal cases (see [MoveLegality]).
+     */
+    fun legalityOf(x: Int, y: Int): MoveLegality {
+        val color = _myColor.value ?: return MoveLegality.LEGAL
+        return _board.value.legality(x, y, color, koPoint)
     }
 
     fun tap(x: Int, y: Int) {
