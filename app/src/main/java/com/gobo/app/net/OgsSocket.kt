@@ -1,5 +1,6 @@
 package com.gobo.app.net
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -19,6 +21,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -27,6 +30,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -46,6 +50,8 @@ class OgsSocket {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private var ws: WebSocket? = null
     private val reqId = AtomicInteger(1)
+    /** In-flight [request]s awaiting their numeric-id reply, keyed by request id. */
+    private val pending = ConcurrentHashMap<Int, CompletableDeferred<JsonElement>>()
 
     /** Server-to-client named events, emitted as (event, data) pairs. */
     private val _events = MutableSharedFlow<Pair<String, JsonElement>>(extraBufferCapacity = 64)
@@ -94,9 +100,11 @@ class OgsSocket {
                 if (name != null) {
                     val data = arr.getOrNull(1) ?: JsonNull
                     _events.tryEmit(name to data)
+                } else {
+                    // Numeric-id reply to a request we sent: [id, data, error?]. Complete the waiter.
+                    val replyId = (head as? JsonPrimitive)?.intOrNull
+                    if (replyId != null) pending.remove(replyId)?.complete(arr.getOrNull(1) ?: JsonNull)
                 }
-                // Numeric-id responses are ignored here; add a callback map if you
-                // need request/response correlation.
             }
 
             // A network failure or a non-clean close (anything but our own code 1000) is a drop —
@@ -129,6 +137,25 @@ class OgsSocket {
             if (withId) add(JsonPrimitive(reqId.getAndIncrement()))
         }
         ws?.send(msg.toString())
+    }
+
+    /**
+     * Send [command] with a request id and suspend until the server's matching numeric-id reply
+     * (used for request/response calls like `gamelist/query`). Returns the reply's data object, or
+     * null on timeout / no open socket. Unlike fire-and-forget [send], this correlates the response.
+     */
+    suspend fun request(command: String, data: JsonElement, timeoutMs: Long = 10_000): JsonElement? {
+        val socket = ws ?: return null
+        val id = reqId.getAndIncrement()
+        val waiter = CompletableDeferred<JsonElement>()
+        pending[id] = waiter
+        val msg = buildJsonArray {
+            add(JsonPrimitive(command))
+            add(data)
+            add(JsonPrimitive(id))
+        }
+        socket.send(msg.toString())
+        return withTimeoutOrNull(timeoutMs) { waiter.await() }.also { pending.remove(id) }
     }
 
     /** Step after fetching user_jwt from /api/v1/ui/config. */

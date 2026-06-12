@@ -144,6 +144,7 @@ private fun LoginScreen(onLogin: () -> Unit) {
 private enum class Destination(val title: String) {
     Games("My Games"),
     NewGame("New Game"),
+    Watch("Watch Game"),
     Settings("Settings"),
 }
 
@@ -151,6 +152,8 @@ private enum class Destination(val title: String) {
 @Composable
 private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, onLogout: () -> Unit) {
     var gameId by remember { mutableStateOf<Long?>(null) }
+    // True when the open game was opened to watch (read-only) rather than to play.
+    var spectating by remember { mutableStateOf(false) }
     var destination by remember { mutableStateOf(Destination.Games) }
 
     // An open game takes over the whole screen (no drawer) with its own back nav.
@@ -158,16 +161,21 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
     if (gid != null) {
         val vm = remember(gid) { GameViewModel(rest, OgsSocket(), config.playerId) }
         val confirmMoves by settings.confirmMoves.collectAsState()
-        val chatEnabled by settings.chatEnabled.collectAsState()
-        // chatEnabled is read once when the game opens; toggling it mid-game takes
-        // effect on the next game (the socket connect flag is set at start()).
+        val chatPref by settings.chatEnabled.collectAsState()
+        // Spectating is read-only: no chat (the connect stays minimal). Otherwise chatEnabled is
+        // read once when the game opens; toggling it mid-game takes effect on the next game.
+        val chatEnabled = chatPref && !spectating
         LaunchedEffect(gid) { vm.start(gid, chatEnabled) }
+        // remember()-created, so onCleared won't fire — close the socket on leaving so it doesn't
+        // keep auto-reconnecting in the background.
+        DisposableEffect(gid) { onDispose { vm.close() } }
         ImmersiveMode()
         GameScreen(
             vm,
             confirmMoves = confirmMoves,
             chatEnabled = chatEnabled,
             myPlayerId = config.playerId,
+            spectating = spectating,
             onBack = { gameId = null },
             onLogout = onLogout,
         )
@@ -241,14 +249,22 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
                 when (destination) {
                     Destination.Games -> GameListScreen(
                         gameListVm,
-                        onSelectGame = { gameId = it },
+                        onSelectGame = { gameId = it; spectating = false },
                         onNewGame = { destination = Destination.NewGame },
                     )
                     Destination.NewGame -> NewGameScreen(
                         newGameVm,
-                        onGameCreated = { id -> gameId = id; gameListVm.load() },
+                        onGameCreated = { id -> gameId = id; spectating = false; gameListVm.load() },
                         onViewGames = { destination = Destination.Games; gameListVm.load() },
                     )
+                    Destination.Watch -> {
+                        // Scoped to the Watch screen: opens its own query socket on entry, closed
+                        // on leave (remember(), so onCleared won't fire). Re-created (fresh list)
+                        // each time you return.
+                        val liveVm = remember { LiveGamesViewModel(OgsSocket(), config.userJwt) }
+                        DisposableEffect(Unit) { onDispose { liveVm.close() } }
+                        WatchScreen(liveVm, onWatch = { id -> gameId = id; spectating = true })
+                    }
                     Destination.Settings -> {
                         val themeMode by settings.themeMode.collectAsState()
                         val confirmMoves by settings.confirmMoves.collectAsState()
@@ -275,6 +291,7 @@ private fun GameScreen(
     confirmMoves: Boolean,
     chatEnabled: Boolean,
     myPlayerId: Int,
+    spectating: Boolean,
     onBack: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -291,6 +308,7 @@ private fun GameScreen(
     val undoRequested by vm.undoRequested.collectAsState()
     val reconnecting by vm.reconnecting.collectAsState()
     val review by vm.review.collectAsState()
+    val toMove by vm.toMove.collectAsState()
 
     // Local 1 Hz tick driving the live countdown: OGS only sends a fresh clock per move, so we
     // recompute remaining time off the anchor ourselves. Runs only while playing — a finished or
@@ -360,7 +378,7 @@ private fun GameScreen(
                     )
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text("← Games") }
+                    TextButton(onClick = onBack) { Text(if (spectating) "← Back" else "← Games") }
                 },
                 actions = {
                     if (chatEnabled) {
@@ -398,10 +416,14 @@ private fun GameScreen(
                 }
                 GamePhase.Playing -> {
                     val opponent = if (myColor == Stone.BLACK) whiteName else blackName
+                    // A spectator has no side: read-only board, no action row, "whose move" status.
+                    val toMoveName = if (toMove == Stone.BLACK) blackName else whiteName
                     GameBoardBody(
                         board, blackName, whiteName, myColor, lastMove, captures, clock, nowMs,
-                        ghostMove = ghost, ghostColor = myColor ?: Stone.EMPTY, invalidCell = invalidCell,
+                        ghostMove = if (spectating) null else ghost,
+                        ghostColor = myColor ?: Stone.EMPTY, invalidCell = invalidCell,
                         statusLine = when {
+                            spectating -> "Spectating · $toMoveName to move"
                             myColor == null -> null
                             undoRequested -> "Undo requested — waiting for $opponent…"
                             ghost != null -> "Tap again to confirm"
@@ -409,20 +431,24 @@ private fun GameScreen(
                             else -> "$opponent's turn"
                         },
                         emphasizeStatus = false,
-                        onTap = { x, y -> onBoardTap(x, y) },
+                        onTap = { x, y -> if (!spectating) onBoardTap(x, y) },
                     ) {
                         val pending = ghost
-                        if (confirmMoves && pending != null) {
-                            Button(onClick = { commit(pending.first, pending.second) }) { Text("Confirm") }
-                            OutlinedButton(onClick = { ghost = null }) { Text("Cancel") }
-                        } else {
-                            // Undo takes back your own last move (bots accept); disabled once the
-                            // opponent has replied or a request is already pending.
-                            OutlinedButton(onClick = { vm.requestUndo() }, enabled = undoEnabled) {
-                                Text("Undo")
+                        when {
+                            spectating -> {} // read-only: no actions
+                            confirmMoves && pending != null -> {
+                                Button(onClick = { commit(pending.first, pending.second) }) { Text("Confirm") }
+                                OutlinedButton(onClick = { ghost = null }) { Text("Cancel") }
                             }
-                            Button(onClick = { vm.tap(-1, -1) }) { Text("Pass") }
-                            OutlinedButton(onClick = { vm.resign() }) { Text("Resign") }
+                            else -> {
+                                // Undo takes back your own last move (bots accept); disabled once the
+                                // opponent has replied or a request is already pending.
+                                OutlinedButton(onClick = { vm.requestUndo() }, enabled = undoEnabled) {
+                                    Text("Undo")
+                                }
+                                Button(onClick = { vm.tap(-1, -1) }) { Text("Pass") }
+                                OutlinedButton(onClick = { vm.resign() }) { Text("Resign") }
+                            }
                         }
                     }
                 }
