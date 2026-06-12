@@ -6,6 +6,7 @@ import com.gobo.app.board.BoardState
 import com.gobo.app.board.MoveLegality
 import com.gobo.app.board.OgsCoord
 import com.gobo.app.board.Stone
+import com.gobo.app.board.replayMoves
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,33 +123,34 @@ class GameViewModel(
     private fun handleSnapshot(data: JsonElement) {
         val obj = data.jsonObject
         val size = obj["width"]?.jsonPrimitive?.intOrNull ?: 19
-        val fresh = BoardState(size)
+        // Parse the move list once, then recover everything the snapshot omits —
+        // captures, the live ko, whose turn it is, the last stone — by replaying it.
+        val moveList = obj["moves"]?.jsonArray?.mapNotNull { mv ->
+            val a = mv.jsonArray
+            val mx = a.getOrNull(0)?.jsonPrimitive?.intOrNull
+            val my = a.getOrNull(1)?.jsonPrimitive?.intOrNull
+            if (mx != null && my != null) mx to my else null
+        } ?: emptyList()
+        val replay = replayMoves(moveList, size)
+        nextColor = replay.nextColor
 
-        // Prefer the server's authoritative board array (captures already applied).
-        // Fall back to replaying moves with local capture logic if the field is absent.
+        // Prefer the server's authoritative board array (captures and handicap already
+        // applied); fall back to the locally replayed position when the field is absent.
         val boardArr = obj["board"]?.jsonArray
-        if (boardArr != null) {
-            boardArr.forEachIndexed { y, rowEl ->
-                rowEl.jsonArray.forEachIndexed { x, cellEl ->
-                    when (cellEl.jsonPrimitive.intOrNull) {
-                        1 -> fresh.set(x, y, Stone.BLACK)
-                        2 -> fresh.set(x, y, Stone.WHITE)
+        val fresh = if (boardArr != null) {
+            BoardState(size).also { b ->
+                boardArr.forEachIndexed { y, rowEl ->
+                    rowEl.jsonArray.forEachIndexed { x, cellEl ->
+                        when (cellEl.jsonPrimitive.intOrNull) {
+                            1 -> b.set(x, y, Stone.BLACK)
+                            2 -> b.set(x, y, Stone.WHITE)
+                        }
                     }
                 }
             }
         } else {
-            var color = Stone.BLACK
-            obj["moves"]?.jsonArray?.forEach { mv ->
-                val arr = mv.jsonArray
-                val x = arr.getOrNull(0)?.jsonPrimitive?.intOrNull ?: return@forEach
-                val y = arr.getOrNull(1)?.jsonPrimitive?.intOrNull ?: return@forEach
-                if (x >= 0 && y >= 0) fresh.applyMove(x, y, color)
-                color = if (color == Stone.BLACK) Stone.WHITE else Stone.BLACK
-            }
+            replay.board
         }
-
-        val moveCount = obj["moves"]?.jsonArray?.size ?: 0
-        nextColor = if (moveCount % 2 == 0) Stone.BLACK else Stone.WHITE
 
         val players = obj["players"]?.jsonObject
         val blackPlayer = players?.get("black")?.jsonObject
@@ -167,36 +169,10 @@ class GameViewModel(
             }
         }
 
-        // Captures aren't in the snapshot, so replay the move list on a scratch board
-        // to recover each side's running prisoner count (correct even on reconnect).
-        // The same replay recovers any live ko, so a reconnect mid-ko still flashes.
-        var capByBlack = 0
-        var capByWhite = 0
-        var replayedKo: Pair<Int, Int>? = null
-        BoardState(size).also { scratch ->
-            var c = Stone.BLACK
-            obj["moves"]?.jsonArray?.forEach { mv ->
-                val a = mv.jsonArray
-                val mx = a.getOrNull(0)?.jsonPrimitive?.intOrNull
-                val my = a.getOrNull(1)?.jsonPrimitive?.intOrNull
-                if (mx != null && my != null && mx >= 0 && my >= 0) {
-                    val captured = scratch.place(mx, my, c)
-                    if (c == Stone.BLACK) capByBlack += captured.size else capByWhite += captured.size
-                    replayedKo = scratch.koPointAfter(mx, my, captured)
-                } else {
-                    replayedKo = null // a pass dissolves any ko
-                }
-                c = if (c == Stone.BLACK) Stone.WHITE else Stone.BLACK
-            }
-        }
-        _captures.value = capByBlack to capByWhite
-        koPoint = replayedKo
-
+        _captures.value = replay.capturedByBlack to replay.capturedByWhite
+        koPoint = replay.koPoint
         _board.value = fresh
-        val lastMv = obj["moves"]?.jsonArray?.lastOrNull()?.jsonArray
-        val lmx = lastMv?.getOrNull(0)?.jsonPrimitive?.intOrNull
-        val lmy = lastMv?.getOrNull(1)?.jsonPrimitive?.intOrNull
-        _lastMove.value = if (lmx != null && lmy != null && lmx >= 0 && lmy >= 0) lmx to lmy else null
+        _lastMove.value = replay.lastMove
         proposedRemoval = obj["removed"]?.jsonPrimitive?.contentOrNull ?: proposedRemoval
         updateTurn()
 
