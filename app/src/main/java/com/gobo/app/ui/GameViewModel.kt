@@ -137,6 +137,9 @@ class GameViewModel(
     val review = _review.asStateFlow()
 
     private var gameId: Long = 0
+    /** The open challenge we posted and are waiting on (0 when this isn't a waiting-for-opponent
+     *  flow). While [GamePhase.Connecting] we keep it alive; [cancelOpenChallenge] withdraws it. */
+    private var challengeId: Long = 0
     private var nextColor = Stone.BLACK
     private var blackId = 0
     private var whiteId = 0
@@ -165,10 +168,14 @@ class GameViewModel(
     /**
      * @param chatEnabled when true, request chat on connect so `game/<id>/chat` events
      *   arrive and populate [chat]. Off by default keeps the connect minimal (no chat).
+     * @param challengeId when non-zero, this is an open challenge we just posted and are waiting on:
+     *   we keep it alive (~1/s) instead of timing out, and reveal [GamePhase.Playing] when an
+     *   opponent accepts (their acceptance is the `gamedata` snapshot that arrives on `game/connect`).
      */
-    fun start(gameId: Long, chatEnabled: Boolean = false) {
+    fun start(gameId: Long, chatEnabled: Boolean = false, challengeId: Long = 0L) {
         this.gameId = gameId
         this.chatEnabled = chatEnabled
+        this.challengeId = challengeId
         viewModelScope.launch {
             val cfg = rest.fetchUiConfig().getOrElse {
                 end("Couldn't connect: ${it.message}", showBoard = false)
@@ -183,7 +190,7 @@ class GameViewModel(
                 socket.gameConnect(gameId, chat = chatEnabled)
             }
             launch { keepAlive() }
-            launch { startTimeout() }
+            if (challengeId != 0L) launch { challengeKeepAlive() } else launch { startTimeout() }
         }
     }
 
@@ -193,6 +200,24 @@ class GameViewModel(
         if (_phase.value is GamePhase.Connecting) {
             end("The game didn't start. The bot may be busy — try another.", showBoard = false)
         }
+    }
+
+    /**
+     * While waiting for someone to accept our open challenge, ping `challenge/keepalive` ~1/s so
+     * OGS doesn't expire the seek. Runs only during [GamePhase.Connecting]; once an opponent accepts,
+     * the `gamedata` snapshot flips us to [GamePhase.Playing] and the loop exits.
+     */
+    private suspend fun challengeKeepAlive() {
+        while (viewModelScope.isActive && _phase.value is GamePhase.Connecting) {
+            socket.challengeKeepalive(challengeId, gameId)
+            delay(1_000)
+        }
+    }
+
+    /** Withdraw the open challenge we're waiting on (the UI then navigates away, closing the socket). */
+    fun cancelOpenChallenge() {
+        val id = challengeId
+        if (id != 0L) viewModelScope.launch { rest.cancelChallenge(id) }
     }
 
     /** Mirror the socket's connection lifecycle into a simple reconnecting flag for the UI. */

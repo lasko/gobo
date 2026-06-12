@@ -154,6 +154,8 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
     var gameId by remember { mutableStateOf<Long?>(null) }
     // True when the open game was opened to watch (read-only) rather than to play.
     var spectating by remember { mutableStateOf(false) }
+    // Non-zero while waiting on an open challenge we posted (drives the keepalive + Cancel).
+    var challengeId by remember { mutableStateOf(0L) }
     var destination by remember { mutableStateOf(Destination.Games) }
 
     // An open game takes over the whole screen (no drawer) with its own back nav.
@@ -165,7 +167,7 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
         // Spectating is read-only: no chat (the connect stays minimal). Otherwise chatEnabled is
         // read once when the game opens; toggling it mid-game takes effect on the next game.
         val chatEnabled = chatPref && !spectating
-        LaunchedEffect(gid) { vm.start(gid, chatEnabled) }
+        LaunchedEffect(gid) { vm.start(gid, chatEnabled, challengeId) }
         // remember()-created, so onCleared won't fire — close the socket on leaving so it doesn't
         // keep auto-reconnecting in the background.
         DisposableEffect(gid) { onDispose { vm.close() } }
@@ -176,7 +178,8 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
             chatEnabled = chatEnabled,
             myPlayerId = config.playerId,
             spectating = spectating,
-            onBack = { gameId = null },
+            waitingForOpponent = challengeId != 0L,
+            onBack = { gameId = null; challengeId = 0L },
             onLogout = onLogout,
         )
         return
@@ -249,13 +252,13 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
                 when (destination) {
                     Destination.Games -> GameListScreen(
                         gameListVm,
-                        onSelectGame = { gameId = it; spectating = false },
+                        onSelectGame = { gameId = it; spectating = false; challengeId = 0L },
                         onNewGame = { destination = Destination.NewGame },
                     )
                     Destination.NewGame -> NewGameScreen(
                         newGameVm,
-                        onGameCreated = { id -> gameId = id; spectating = false; gameListVm.load() },
-                        onViewGames = { destination = Destination.Games; gameListVm.load() },
+                        // chalId is non-zero for an open seek → opens the waiting-for-opponent flow.
+                        onGameCreated = { id, chalId -> gameId = id; spectating = false; challengeId = chalId },
                     )
                     Destination.Watch -> {
                         // Scoped to the Watch screen: opens its own query socket on entry, closed
@@ -263,7 +266,7 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
                         // each time you return.
                         val liveVm = remember { LiveGamesViewModel(OgsSocket(), config.userJwt) }
                         DisposableEffect(Unit) { onDispose { liveVm.close() } }
-                        WatchScreen(liveVm, onWatch = { id -> gameId = id; spectating = true })
+                        WatchScreen(liveVm, onWatch = { id -> gameId = id; spectating = true; challengeId = 0L })
                     }
                     Destination.Settings -> {
                         val themeMode by settings.themeMode.collectAsState()
@@ -292,6 +295,7 @@ private fun GameScreen(
     chatEnabled: Boolean,
     myPlayerId: Int,
     spectating: Boolean,
+    waitingForOpponent: Boolean,
     onBack: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -409,10 +413,19 @@ private fun GameScreen(
                 ReconnectingBanner(Modifier.align(Alignment.TopCenter))
             }
             when (val p = phase) {
-                // Don't show a board until the server confirms the game exists.
+                // Don't show a board until the server confirms the game exists. For an open
+                // challenge, "confirmed" means an opponent accepted — so we wait (keepalive runs in
+                // the VM) with a Cancel that withdraws the seek.
                 GamePhase.Connecting -> CenteredInfo {
                     CircularProgressIndicator()
-                    Text("Waiting for the game to start…")
+                    if (waitingForOpponent) {
+                        Text("Waiting for an opponent to accept…")
+                        OutlinedButton(onClick = { vm.cancelOpenChallenge(); onBack() }) {
+                            Text("Cancel challenge")
+                        }
+                    } else {
+                        Text("Waiting for the game to start…")
+                    }
                 }
                 GamePhase.Playing -> {
                     val opponent = if (myColor == Stone.BLACK) whiteName else blackName
