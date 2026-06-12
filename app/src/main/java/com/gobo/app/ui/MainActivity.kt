@@ -25,6 +25,7 @@ import com.gobo.app.auth.AuthManager
 import com.gobo.app.auth.TokenStore
 import com.gobo.app.board.BoardState
 import com.gobo.app.board.GoBoard
+import com.gobo.app.board.MoveLegality
 import com.gobo.app.board.Stone
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
@@ -286,7 +287,9 @@ private fun GameScreen(
 
     fun onBoardTap(x: Int, y: Int) {
         if (myColor == null || !myTurn) return
-        if (board.grid[y][x] != Stone.EMPTY) {        // occupied intersection
+        // Flash any locally-detectable illegal move (occupied, suicide, simple ko)
+        // instead of sending it; OGS stays authoritative for everything else.
+        if (vm.legalityOf(x, y) != MoveLegality.LEGAL) {
             ghost = null
             invalidCell = x to y
             view.performHapticFeedback(HapticFeedbackConstants.REJECT)
