@@ -287,6 +287,8 @@ private fun GameScreen(
     val captures by vm.captures.collectAsState()
     val chat by vm.chat.collectAsState()
     val clock by vm.clock.collectAsState()
+    val undoEnabled by vm.undoEnabled.collectAsState()
+    val undoRequested by vm.undoRequested.collectAsState()
 
     // Local 1 Hz tick driving the live countdown: OGS only sends a fresh clock per move, so we
     // recompute remaining time off the anchor ourselves. Runs only while playing — a finished or
@@ -394,6 +396,7 @@ private fun GameScreen(
                         ghostMove = ghost, ghostColor = myColor ?: Stone.EMPTY, invalidCell = invalidCell,
                         statusLine = when {
                             myColor == null -> null
+                            undoRequested -> "Undo requested — waiting for $opponent…"
                             ghost != null -> "Tap again to confirm"
                             myTurn -> "Your turn"
                             else -> "$opponent's turn"
@@ -406,6 +409,11 @@ private fun GameScreen(
                             Button(onClick = { commit(pending.first, pending.second) }) { Text("Confirm") }
                             OutlinedButton(onClick = { ghost = null }) { Text("Cancel") }
                         } else {
+                            // Undo takes back your own last move (bots accept); disabled once the
+                            // opponent has replied or a request is already pending.
+                            OutlinedButton(onClick = { vm.requestUndo() }, enabled = undoEnabled) {
+                                Text("Undo")
+                            }
                             Button(onClick = { vm.tap(-1, -1) }) { Text("Pass") }
                             OutlinedButton(onClick = { vm.resign() }) { Text("Resign") }
                         }
