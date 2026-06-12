@@ -88,6 +88,8 @@ class GameViewModel(
     private var koPoint: Pair<Int, Int>? = null
     /** Dead-stone set proposed during scoring, in OGS encoding; echoed back on accept. */
     private var proposedRemoval = ""
+    /** Moves played so far; the move a chat line is attached to when sending. */
+    private var moveNumber = 0
 
     /**
      * @param chatEnabled when true, request chat on connect so `game/<id>/chat` events
@@ -144,6 +146,7 @@ class GameViewModel(
         } ?: emptyList()
         val replay = replayMoves(moveList, size)
         nextColor = replay.nextColor
+        moveNumber = moveList.size
 
         // Prefer the server's authoritative board array (captures and handicap already
         // applied); fall back to the locally replayed position when the field is absent.
@@ -302,6 +305,7 @@ class GameViewModel(
             _lastMove.value = null
         }
         nextColor = if (nextColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
+        moveNumber++
         _board.value = b
         updateTurn()
     }
@@ -324,6 +328,17 @@ class GameViewModel(
     fun resign() {
         if (_phase.value != GamePhase.Playing) return
         socket.gameResign(gameId)
+    }
+
+    /**
+     * Send an in-game chat line (no-op for blank text). Identity is already established by
+     * the authenticated socket; our own line appears once the server echoes it back as a
+     * `game/<id>/chat` event.
+     */
+    fun sendChat(body: String) {
+        val text = body.trim()
+        if (text.isEmpty() || gameId == 0L) return
+        socket.sendChat(gameId, text, moveNumber)
     }
 
     /** Scoring: accept the proposed score; the game finishes once the opponent agrees. */

@@ -3,11 +3,13 @@ package com.gobo.app.net
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 
 /** A single in-game chat line, as shown read-only in the game screen. */
 data class ChatMessage(
@@ -38,4 +40,23 @@ fun parseGameChat(data: JsonElement): ChatMessage? {
         body = body,
         date = line["date"]?.jsonPrimitive?.longOrNull ?: 0L,
     )
+}
+
+/**
+ * Build the `game/chat` send payload. The current OGS protocol authenticates the sender
+ * via the earlier `authenticate` message, so a chat line needs no per-message auth or
+ * identity (the legacy `game_chat_auth`/`username`/`ranking`/`ui_class` fields are gone) —
+ * only the game, the text, the move it's attached to, and the channel [type] ("main" for
+ * normal in-game play). Pure, so the shape is unit-tested directly.
+ */
+fun buildGameChatMessage(
+    gameId: Long,
+    body: String,
+    moveNumber: Int,
+    type: String = "main",
+): JsonObject = buildJsonObject {
+    put("game_id", gameId)
+    put("body", body)
+    put("move_number", moveNumber)
+    put("type", type)
 }

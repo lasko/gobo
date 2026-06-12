@@ -112,6 +112,16 @@ class OgsSocket {
     }
 
     /**
+     * Send an in-game chat line. Identity comes from the prior [authenticate], so the
+     * payload is just the game, text, the [moveNumber] it's attached to, and the channel
+     * [type] ("main" for normal play). The server echoes it back as a `game/<id>/chat`
+     * event, which is how the sender's own line appears.
+     */
+    fun sendChat(gameId: Long, body: String, moveNumber: Int, type: String = "main") {
+        send("game/chat", buildGameChatMessage(gameId, body, moveNumber, type))
+    }
+
+    /**
      * Scoring phase: accept the given dead-stone set (OGS' 2-char-per-coord encoding).
      * The game concludes only once both players accept the identical [stones] + seki
      * mode, so [stones] must echo the set the server/opponent currently marks.
