@@ -84,4 +84,42 @@ class OgsParseTest {
         assertEquals("", r.outcome)
         assertNull(r.winnerId)
     }
+
+    @Test
+    fun sentChallengesKeepsOnlyMineAndReadsGameFields() {
+        // Two challenges: one I sent (challenger 7), one someone else sent to me.
+        val body = """
+            {"results":[
+              {"id":900,"challenger":{"id":7,"username":"me"},
+               "game":{"name":"Friendly","width":9,"ranked":true}},
+              {"id":901,"challenger":{"id":42,"username":"someone"},
+               "game":{"name":"Theirs","width":19,"ranked":false}}
+            ]}
+        """.trimIndent()
+        val mine = parseSentChallenges(body, myPlayerId = 7)
+        assertEquals(1, mine.size)
+        assertEquals(900L, mine[0].id)
+        assertEquals(9, mine[0].boardSize)
+        assertTrue(mine[0].ranked)
+        assertEquals("Friendly", mine[0].name)
+    }
+
+    @Test
+    fun sentChallengesAcceptsBareArrayAndChallengerIdField() {
+        // Top-level array, and challenger given as a bare id field rather than an object.
+        val body = """[{"id":5,"challenger_id":7,"width":13,"ranked":false}]"""
+        val mine = parseSentChallenges(body, myPlayerId = 7)
+        assertEquals(1, mine.size)
+        assertEquals(13, mine[0].boardSize)
+        assertEquals("", mine[0].name) // no name -> blank (UI shows a generic label)
+    }
+
+    @Test
+    fun sentChallengesDefaultsBoardSizeAndIsEmptyWhenNoneMine() {
+        assertTrue(parseSentChallenges("""{"results":[]}""", myPlayerId = 7).isEmpty())
+        assertTrue(parseSentChallenges("""{"foo":1}""", myPlayerId = 7).isEmpty())
+        // A challenge of mine with no width defaults to 19.
+        val mine = parseSentChallenges("""[{"id":1,"challenger":{"id":7}}]""", myPlayerId = 7)
+        assertEquals(19, mine[0].boardSize)
+    }
 }

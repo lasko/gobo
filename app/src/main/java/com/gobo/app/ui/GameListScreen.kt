@@ -32,7 +32,7 @@ fun GameListScreen(
                 Button(onClick = vm::load) { Text("Retry") }
             }
 
-            is GameListUiState.Ready -> if (s.games.isEmpty()) {
+            is GameListUiState.Ready -> if (s.games.isEmpty() && s.pending.isEmpty()) {
                 Column(
                     Modifier.align(Alignment.Center).padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -43,6 +43,33 @@ fun GameListScreen(
                 }
             } else {
                 LazyColumn {
+                    // Pending (sent, not-yet-accepted) challenges first — they're the ones
+                    // the player can still act on by cancelling.
+                    if (s.pending.isNotEmpty()) {
+                        item { SectionHeader("Pending challenges") }
+                        items(s.pending, key = { "challenge-${it.id}" }) { challenge ->
+                            ListItem(
+                                headlineContent = {
+                                    Text(challenge.name.ifBlank { "Open challenge" })
+                                },
+                                supportingContent = {
+                                    Text(
+                                        "${challenge.boardSize}×${challenge.boardSize} · " +
+                                            "${if (challenge.ranked) "ranked" else "unranked"} · " +
+                                            "waiting for an opponent",
+                                    )
+                                },
+                                trailingContent = {
+                                    TextButton(onClick = { vm.cancelChallenge(challenge.id) }) {
+                                        Text("Cancel")
+                                    }
+                                },
+                            )
+                            HorizontalDivider()
+                        }
+                        // Only label the games section when a pending section sits above it.
+                        if (s.games.isNotEmpty()) item { SectionHeader("Active games") }
+                    }
                     items(s.games, key = { it.id }) { game ->
                         ListItem(
                             modifier = Modifier.clickable { onSelectGame(game.id) },
@@ -62,4 +89,14 @@ fun GameListScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
 }

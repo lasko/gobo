@@ -233,7 +233,8 @@ fun NewGameScreen(
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Challenge posted!", style = MaterialTheme.typography.titleSmall)
-                        Text("It will appear in My Games once a player accepts.",
+                        Text("It's listed under Pending in My Games until someone accepts — " +
+                            "you can cancel it there.",
                             style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = { vm.resetSubmit(); onViewGames() }) {
                             Text("Go to My Games")

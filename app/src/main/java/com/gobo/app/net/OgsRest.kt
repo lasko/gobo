@@ -26,6 +26,15 @@ data class GameSummary(
 /** Authoritative end state for a finished game. [winnerId] is an OGS player id. */
 data class GameResult(val outcome: String, val winnerId: Int?)
 
+/** A challenge the local player has sent that no opponent has accepted yet. */
+data class PendingChallenge(
+    val id: Long,
+    val boardSize: Int,
+    val ranked: Boolean,
+    /** The challenge/game name, or a generic label when blank. */
+    val name: String,
+)
+
 class OgsRest(private val store: TokenStore) {
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
@@ -53,6 +62,23 @@ class OgsRest(private val store: TokenStore) {
             IllegalStateException("Not logged in")
         )
         get(Ogs.game(gameId), token) { body -> parseGameResult(body) }
+    }
+
+    /** The challenges the local player has sent that are still awaiting an opponent. */
+    suspend fun fetchSentChallenges(myPlayerId: Int): Result<List<PendingChallenge>> =
+        withContext(Dispatchers.IO) {
+            val token = store.accessToken ?: return@withContext Result.failure(
+                IllegalStateException("Not logged in")
+            )
+            get(Ogs.MY_CHALLENGES, token) { body -> parseSentChallenges(body, myPlayerId) }
+        }
+
+    /** Withdraw a challenge the local player posted. */
+    suspend fun cancelChallenge(challengeId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        val token = store.accessToken ?: return@withContext Result.failure(
+            IllegalStateException("Not logged in")
+        )
+        delete(Ogs.challenge(challengeId), token)
     }
 
     /**
@@ -109,4 +135,15 @@ class OgsRest(private val store: TokenStore) {
                 parse(resp.body?.string() ?: error("empty body"))
             }
         }
+
+    private fun delete(url: String, token: String): Result<Unit> = runCatching {
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $token")
+            .delete()
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) error("HTTP ${resp.code} for $url")
+        }
+    }
 }
