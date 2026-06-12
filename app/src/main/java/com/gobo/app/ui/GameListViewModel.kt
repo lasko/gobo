@@ -45,6 +45,20 @@ class GameListViewModel(
         }
     }
 
+    /**
+     * Silent background refresh for the screen's while-visible polling: swap in fresh data on
+     * success, but on a transient failure keep showing the current list (no Loading flash, no
+     * flip to Error). Initial load and explicit user actions use [load], which shows the spinner.
+     */
+    fun refresh() {
+        viewModelScope.launch {
+            rest.fetchActiveGames(config.playerId).onSuccess { games ->
+                val pending = rest.fetchSentChallenges(config.playerId).getOrDefault(emptyList())
+                _state.value = GameListUiState.Ready(games, pending)
+            }
+        }
+    }
+
     /** Withdraw a sent challenge, then refresh so the list reflects the server. */
     fun cancelChallenge(id: Long) {
         viewModelScope.launch {
