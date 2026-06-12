@@ -50,6 +50,30 @@ class GameChatTest {
     }
 
     @Test
+    fun rendersTranslatedBotBodies() {
+        // Regression: bots send greetings/end-notes as a translated body OBJECT, not a string
+        // (captured verbatim from a live amybot game). We previously dropped these as if they
+        // were analysis variations, so no bot message ever appeared. Render the `en` text.
+        val msg = parse(
+            """
+            {"channel":"main","line":{"player_id":605979,"username":"amybot-beginner",
+              "date":1781275273,"chat_id":"c25","move_number":null,
+              "body":{"en":"Good luck, have fun!","type":"translated"}}}
+            """.trimIndent(),
+        )
+        assertEquals("Good luck, have fun!", msg?.body)
+        assertEquals(605979, msg?.playerId)
+        assertEquals("amybot-beginner", msg?.username)
+        assertEquals("c25", msg?.id)
+    }
+
+    @Test
+    fun skipsTranslatedBodyMissingEnglishText() {
+        // A translated body must actually carry `en`; otherwise there's nothing to show.
+        assertNull(parse("""{"message":{"player_id":1,"body":{"type":"translated"}}}"""))
+    }
+
+    @Test
     fun appliesDefaultsForMissingFields() {
         val msg = parse("""{"message":{"body":"hello"}}""")
         assertEquals("hello", msg?.body)

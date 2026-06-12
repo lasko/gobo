@@ -25,14 +25,32 @@ data class ChatMessage(
 )
 
 /**
+ * Extract the displayable text from a chat line's `body`. OGS bodies are either a plain
+ * string (human chat) or a structured object tagged by `type`. Only `type:"translated"`
+ * carries text — bots send their greeting and end-of-game notes as
+ * `{"type":"translated","en":"…",<lang>:"…"}` (confirmed against the goban
+ * `GameChatTranslatedMessage` type and a live amybot game); we render the `en` text.
+ * `analysis`/`review` variations are not text, so they (and any unknown shape) yield null
+ * and the view skips them.
+ */
+fun chatBodyText(bodyEl: JsonElement?): String? = when (bodyEl) {
+    is JsonPrimitive -> if (bodyEl.isString) bodyEl.content else null
+    is JsonObject ->
+        if (bodyEl["type"]?.jsonPrimitive?.contentOrNull == "translated") {
+            bodyEl["en"]?.jsonPrimitive?.contentOrNull
+        } else {
+            null
+        }
+    else -> null
+}
+
+/**
  * Parse one chat line object — the `message`/`line` of a `game/<id>/chat` event, or an
- * entry in the gamedata `chat_log`. Returns null for a non-text `body` (an analysis/
- * variation object), since the view only renders text.
+ * entry in the gamedata `chat_log`. Returns null when the `body` carries no displayable
+ * text (an analysis/variation object), since the view only renders text — see [chatBodyText].
  */
 fun parseChatLine(line: JsonObject): ChatMessage? {
-    val bodyPrim = line["body"] as? JsonPrimitive ?: return null
-    if (!bodyPrim.isString) return null
-    val body = bodyPrim.contentOrNull ?: return null
+    val body = chatBodyText(line["body"]) ?: return null
     val playerId = line["player_id"]?.jsonPrimitive?.intOrNull ?: 0
     val date = line["date"]?.jsonPrimitive?.longOrNull ?: 0L
     return ChatMessage(
