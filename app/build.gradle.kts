@@ -47,6 +47,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    // Lifecycle-aware Compose helpers (repeatOnLifecycle) so My Games only polls while resumed.
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
 
     // Networking: OkHttp for REST + WebSocket. No analytics SDKs.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

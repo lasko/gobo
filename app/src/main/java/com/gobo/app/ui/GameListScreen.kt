@@ -9,6 +9,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+
+/** How often My Games silently refreshes while it's the visible, resumed screen. */
+private const val GAMES_REFRESH_INTERVAL_MS = 10_000L
 
 /** Body content for the "My Games" destination. The top bar is owned by the drawer scaffold. */
 @Composable
@@ -18,6 +25,19 @@ fun GameListScreen(
     onNewGame: () -> Unit,
 ) {
     val state by vm.state.collectAsState()
+
+    // Live-update while My Games is on screen: silently re-fetch on an interval so turn badges and
+    // accepted challenges move without the manual Refresh button. repeatOnLifecycle keeps the loop
+    // running only while RESUMED, so a backgrounded app stops polling (no wasted requests/battery).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(GAMES_REFRESH_INTERVAL_MS)
+                vm.refresh()
+            }
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         when (val s = state) {
