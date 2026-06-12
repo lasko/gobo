@@ -140,14 +140,14 @@ class OgsSocket {
     }
 
     /**
-     * Connect to a game's realtime channel. [playerId] is required: OGS only pushes
-     * the initial `game/<id>/gamedata` snapshot (board, players, clock, phase) when
-     * the connect identifies the player. Omitting it leaves the board blank.
+     * Connect to a game's realtime channel, after which OGS pushes the initial
+     * `game/<id>/gamedata` snapshot (board, players, clock, phase). The prior [authenticate]
+     * (the JWT) identifies the player — no `player_id` is sent (matching goban; verified that
+     * gamedata still arrives without it, #26).
      */
-    fun gameConnect(gameId: Long, playerId: Int, chat: Boolean = false) {
+    fun gameConnect(gameId: Long, chat: Boolean = false) {
         send("game/connect", buildJsonObject {
             put("game_id", gameId)
-            put("player_id", playerId)
             put("chat", chat)
         })
     }

@@ -155,7 +155,7 @@ class GameViewModel(
             launch { collectConnection() }
             socket.connect {
                 socket.authenticate(cfg.userJwt)
-                socket.gameConnect(gameId, playerId = cfg.playerId, chat = chatEnabled)
+                socket.gameConnect(gameId, chat = chatEnabled)
             }
             launch { keepAlive() }
             launch { startTimeout() }
