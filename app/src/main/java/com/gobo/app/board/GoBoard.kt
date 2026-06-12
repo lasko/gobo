@@ -38,7 +38,9 @@ data class BoardColors(
             gridLine = Color(0xFFDEE2E6),
             label = Color(0xFF868E96),
             whiteFill = Color(0xFFFFFFFF),
-            whiteBorder = Color(0xFFCED4DA),
+            // A pure-white stone on the near-white board reads only by its outline,
+            // so the border must sit clearly darker than the grid lines (gray-3).
+            whiteBorder = Color(0xFF868E96),
             blackFill = Color(0xFF212529),
             blackBorder = null,
             lastMove = Color(0xFF20C997),
@@ -178,8 +180,12 @@ fun GoBoard(
         // Pending (ghost) stone for two-tap placement: the committed fill at half opacity.
         ghostMove?.let { (gx, gy) ->
             if (gx in 0 until n && gy in 0 until n && state.grid[gy][gx] == Stone.EMPTY) {
-                val fill = if (ghostColor == Stone.WHITE) colors.whiteFill else colors.blackFill
-                drawCircle(fill, r, Offset(origin + gx * cell, origin + gy * cell), alpha = 0.5f)
+                val center = Offset(origin + gx * cell, origin + gy * cell)
+                val ghostBorder = if (ghostColor == Stone.WHITE) colors.whiteBorder else colors.blackBorder
+                drawCircle(if (ghostColor == Stone.WHITE) colors.whiteFill else colors.blackFill, r, center, alpha = 0.5f)
+                // Carry the committed-stone border into the preview so a white ghost
+                // stays visible on the light board (where the fill alone is near-invisible).
+                ghostBorder?.let { drawCircle(it, r, center, alpha = 0.5f, style = Stroke(border)) }
             }
         }
 
