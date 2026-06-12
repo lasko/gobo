@@ -11,15 +11,15 @@ The privacy stance is the product, not a nice-to-have. Keep it intact (see [Non-
 - **Async:** Coroutines + `StateFlow`
 - **Net:** OkHttp 4.12 (REST + WebSocket), kotlinx.serialization JSON 1.7.3
 - **Auth:** AppAuth 0.11.1 (OAuth2 + PKCE via Custom Tab), `androidx.security.crypto` EncryptedSharedPreferences for token at rest
-- **Build:** AGP 8.13.2, Gradle 8.14.4 wrapper. `minSdk 26`, `targetSdk 34`, `compileSdk 37`
+- **Build:** AGP 8.13.2, Gradle 8.14.4 wrapper. `minSdk 26`, `targetSdk 34`, `compileSdk 36`
 
 ## Package layout
 
 ```
 app/src/main/java/com/gobo/app/
   auth/      AuthManager (PKCE flow), TokenStore (encrypted token storage)
-  board/     BoardState (capture logic), GoBoard (flat Compose canvas) + BoardColors/LocalBoardColors, Stone enum, OgsCoord
-  net/       Ogs (all endpoints), OgsRest (REST), OgsSocket (realtime), Challenges (models, active-bots parser, buildChallengeBody)
+  board/     BoardState (capture + move legality/ko), MoveReplay (pure snapshot replay), GoBoard (flat Compose canvas) + BoardColors/LocalBoardColors, Stone enum, OgsCoord
+  net/       Ogs (all endpoints), OgsRest (REST), OgsParse (pure REST response parsers), OgsSocket (realtime), Challenges (models, active-bots parser, buildChallengeBody)
   settings/  SettingsStore (plain prefs: theme + confirmMoves), ThemeMode enum
   ui/        MainActivity (Session + drawer nav + ImmersiveMode), Theme (GoboTheme schemes), Type (Poppins typography), *Screen (Compose), *ViewModel (StateFlow)
   res/       font/ (bundled Poppins TTFs), drawable+mipmap-anydpi-v26 (adaptive launcher icon), values/colors.xml
@@ -44,7 +44,7 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 .\gradlew.bat assembleDebug        # full debug APK
 .\gradlew.bat installDebug         # build + install on connected device/emulator
 .\gradlew.bat lint                 # Android Lint -> app/build/reports/lint-results-debug.html
-.\gradlew.bat testDebugUnitTest    # JVM unit tests (none yet — see Testing)
+.\gradlew.bat testDebugUnitTest    # JVM unit tests (pure-logic suite — see Testing)
 .\gradlew.bat --stop               # kill stuck Gradle daemons
 ```
 
@@ -127,7 +127,6 @@ Manual smoke flow (covers the parts unit tests can't): log in → drawer → **N
 
 ## Gotchas
 
-- The Gradle project root is `gobo/gobo/` (this directory), not the outer `gobo/`.
 - Material3 `menuAnchor()` no-arg is deprecated in 1.3 but still compiles (used in dropdowns) — a warning, not an error.
 - `Stone` has three values (`EMPTY`, `BLACK`, `WHITE`); `when` over a `Stone?` color needs to handle `EMPTY`/`else`, not just BLACK/WHITE/null.
 - The socket's `events` flow has `replay = 0`; subscribe *before* connecting if you need a one-shot broadcast like `active-bots`.
