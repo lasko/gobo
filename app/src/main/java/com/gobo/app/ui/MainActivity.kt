@@ -290,6 +290,7 @@ private fun GameScreen(
     val undoEnabled by vm.undoEnabled.collectAsState()
     val undoRequested by vm.undoRequested.collectAsState()
     val reconnecting by vm.reconnecting.collectAsState()
+    val review by vm.review.collectAsState()
 
     // Local 1 Hz tick driving the live countdown: OGS only sends a fresh clock per move, so we
     // recompute remaining time off the anchor ourselves. Runs only while playing — a finished or
@@ -434,15 +435,27 @@ private fun GameScreen(
                     Button(onClick = { vm.acceptScore() }) { Text("Accept") }
                     OutlinedButton(onClick = { vm.resumeGame() }) { Text("Resume") }
                 }
-                // Finished game keeps the final position; a game that never started has none.
+                // Finished game keeps the final position and is reviewable move-by-move; a game
+                // that never started has no board. The top-bar "← Games" is the back affordance,
+                // so the action row is free for review navigation.
                 is GamePhase.Over -> if (p.showBoard) {
+                    val rev = review
                     GameBoardBody(
-                        board, blackName, whiteName, myColor, lastMove, captures, clock, nowMs,
-                        statusLine = p.message,
+                        rev?.board ?: board, blackName, whiteName, myColor,
+                        rev?.lastMove ?: lastMove, rev?.captures ?: captures, clock, nowMs,
+                        statusLine = if (rev != null) "${p.message}  ·  move ${rev.index} / ${rev.total}"
+                            else p.message,
                         emphasizeStatus = true,
                         onTap = { _, _ -> },
                     ) {
-                        Button(onClick = onBack) { Text("Back to games") }
+                        if (rev != null) {
+                            OutlinedButton(onClick = { vm.reviewJump(0) }, enabled = rev.index > 0) { Text("⏮") }
+                            OutlinedButton(onClick = { vm.reviewStep(-1) }, enabled = rev.index > 0) { Text("◀") }
+                            OutlinedButton(onClick = { vm.reviewStep(1) }, enabled = rev.index < rev.total) { Text("▶") }
+                            OutlinedButton(onClick = { vm.reviewJump(rev.total) }, enabled = rev.index < rev.total) { Text("⏭") }
+                        } else {
+                            Button(onClick = onBack) { Text("Back to games") }
+                        }
                     }
                 } else CenteredInfo {
                     Text(

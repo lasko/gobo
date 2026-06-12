@@ -51,6 +51,19 @@ sealed interface GamePhase {
     data class Over(val message: String, val showBoard: Boolean) : GamePhase
 }
 
+/**
+ * A position being reviewed on the finished-game screen: the board after [index] of [total] moves,
+ * with the marker on that move and the prisoner counts at that point. Rebuilt purely by replaying
+ * the move list, so stepping through a game reuses the same tested logic as the live board.
+ */
+data class ReviewState(
+    val index: Int,
+    val total: Int,
+    val board: BoardState,
+    val lastMove: Pair<Int, Int>?,
+    val captures: Pair<Int, Int>,
+)
+
 class GameViewModel(
     private val rest: OgsRest,
     private val socket: OgsSocket,
@@ -110,6 +123,14 @@ class GameViewModel(
      */
     private val _reconnecting = MutableStateFlow(false)
     val reconnecting = _reconnecting.asStateFlow()
+
+    /**
+     * Move-by-move review of a finished game, or null while the game is live. Initialized at the
+     * final position when the game ends (with a board); the screen steps [reviewStep]/[reviewJump]
+     * through it. Each position is a pure [replayMoves] of the move-list prefix.
+     */
+    private val _review = MutableStateFlow<ReviewState?>(null)
+    val review = _review.asStateFlow()
 
     private var gameId: Long = 0
     private var nextColor = Stone.BLACK
@@ -376,6 +397,27 @@ class GameViewModel(
     private fun end(message: String, showBoard: Boolean) {
         if (_phase.value is GamePhase.Over) return
         _phase.value = GamePhase.Over(message, showBoard)
+        // A finished game with a board is reviewable: start at the final position.
+        if (showBoard) _review.value = buildReview(moves.size)
+    }
+
+    /** The reviewable position after [index] moves (clamped), rebuilt by replaying that prefix. */
+    private fun buildReview(index: Int): ReviewState {
+        val clamped = index.coerceIn(0, moves.size)
+        val r = replayMoves(moves.take(clamped), _board.value.size)
+        return ReviewState(clamped, moves.size, r.board, r.lastMove, r.capturedByBlack to r.capturedByWhite)
+    }
+
+    /** Step the review by [delta] moves (e.g. -1 prev, +1 next); no-op unless reviewing. */
+    fun reviewStep(delta: Int) {
+        val cur = _review.value ?: return
+        _review.value = buildReview(cur.index + delta)
+    }
+
+    /** Jump the review to an absolute move [index] (clamped); no-op unless reviewing. */
+    fun reviewJump(index: Int) {
+        if (_review.value == null) return
+        _review.value = buildReview(index)
     }
 
     private fun handleMove(data: JsonElement) {
