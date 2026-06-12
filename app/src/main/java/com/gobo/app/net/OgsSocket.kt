@@ -196,6 +196,18 @@ class OgsSocket {
     }
 
     /**
+     * Keep a posted open challenge alive. OGS expires an open seek within seconds unless the
+     * creator pings this (~1/s) while waiting for an opponent; the web client does the same. Stops
+     * mattering once the challenge is accepted (a `gamedata` snapshot arrives) or cancelled.
+     */
+    fun challengeKeepalive(challengeId: Long, gameId: Long) {
+        send("challenge/keepalive", buildJsonObject {
+            put("challenge_id", challengeId)
+            put("game_id", gameId)
+        })
+    }
+
+    /**
      * Ask to take back to [moveNumber] (the current move count). Identity comes from the prior
      * [authenticate]; the opponent (a bot, in our case) must accept before anything reverts —
      * we act on the resulting `game/<id>/undo_accepted` event, not optimistically.

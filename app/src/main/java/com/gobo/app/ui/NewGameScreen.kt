@@ -41,8 +41,7 @@ private fun defaultParams(system: String, speed: String): Triple<Int, Int, Int> 
 @Composable
 fun NewGameScreen(
     vm: NewGameViewModel,
-    onGameCreated: (Long) -> Unit,
-    onViewGames: () -> Unit,
+    onGameCreated: (gameId: Long, challengeId: Long) -> Unit,
 ) {
     val botsState by vm.bots.collectAsState()
     val submitState by vm.submit.collectAsState()
@@ -85,12 +84,13 @@ fun NewGameScreen(
     LaunchedEffect(sizeOptions) { if (boardSize !in sizeOptions) boardSize = sizeOptions.first() }
     LaunchedEffect(systemOptions) { if (system !in systemOptions) system = systemOptions.first() }
 
-    // Navigate into the game once a bot accepts (bot games start immediately).
+    // On a successful post, open the game screen: a bot game starts immediately (Playing), while an
+    // open seek opens the waiting-for-opponent screen (challengeId drives the keepalive + Cancel).
     LaunchedEffect(submitState) {
         val s = submitState
-        if (s is SubmitState.Success && s.result.vsBot && s.result.gameId > 0) {
+        if (s is SubmitState.Success && s.result.gameId > 0) {
             vm.resetSubmit()
-            onGameCreated(s.result.gameId)
+            onGameCreated(s.result.gameId, if (s.result.vsBot) 0L else s.result.challengeId)
         }
     }
 
@@ -229,20 +229,7 @@ fun NewGameScreen(
             is SubmitState.Error -> Text(s.message, color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall)
 
-            is SubmitState.Success -> if (!s.result.vsBot) {
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Challenge posted!", style = MaterialTheme.typography.titleSmall)
-                        Text("It's listed under Pending in My Games until someone accepts — " +
-                            "you can cancel it there.",
-                            style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { vm.resetSubmit(); onViewGames() }) {
-                            Text("Go to My Games")
-                        }
-                    }
-                }
-            } else Unit
-
+            // Success navigates into the game/waiting screen (handled by the LaunchedEffect above).
             else -> Unit
         }
 
