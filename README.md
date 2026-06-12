@@ -9,6 +9,7 @@ A native Kotlin/Compose app for playing Go on [OGS](https://online-go.com).
 - **Play in realtime** — board updates, captures, pass, resign, and the two-pass stone-removal / scoring flow (accept or resume) over the OGS socket.
 - **Immediate move feedback** — illegal taps (occupied points, suicide, simple ko) flash locally instead of waiting for the server, plus an optional two-tap "confirm moves" mode.
 - **Start a game** — challenge a bot that's currently online and accepting, or post an open challenge for a human, with full control over board size, rules, time settings, handicap, and komi.
+- **Optional in-game chat** — **off by default**; enable it in Settings to read a game's chat (sending isn't supported yet). Kept opt-in so the default posture requests and receives no chat at all.
 - **Light / Dark / System theme**, chosen in Settings and remembered across restarts.
 
 ## Privacy posture
@@ -67,6 +68,7 @@ socket -> "game/connect" -> play
 | REST response parsers (pure) | `net/OgsParse.kt` |
 | Realtime protocol | `net/OgsSocket.kt` |
 | Challenge/bot models, `active-bots` parser, challenge body | `net/Challenges.kt` |
+| In-game chat model + parser (read-only) | `net/GameChat.kt` |
 | Board model, capture/legality (suicide, ko) + coords | `board/BoardState.kt` |
 | Snapshot/move replay (captures, ko, turn) | `board/MoveReplay.kt` |
 | Board rendering | `board/GoBoard.kt` |
@@ -80,7 +82,7 @@ See [CLAUDE.md](CLAUDE.md) for full architecture notes, the OGS API cheat-sheet,
 
 ## Tests
 
-JVM unit tests (no emulator needed) cover the board capture logic and move legality (suicide, ko), snapshot/move replay, the OGS coordinate codec, online-bot parsing, challenge-body construction, and REST response parsing:
+JVM unit tests (no emulator needed) cover the board capture logic and move legality (suicide, ko), snapshot/move replay, the OGS coordinate codec, online-bot parsing, challenge-body construction, REST response parsing, and game-chat parsing:
 
 ```bash
 ./gradlew testDebugUnitTest
