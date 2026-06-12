@@ -1,6 +1,10 @@
 package com.gobo.app.net
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -57,5 +61,18 @@ class GameChatTest {
     fun returnsNullWhenNoMessageObject() {
         assertNull(parse("""{"type":"discussion"}"""))
         assertNull(parse("""[]"""))
+    }
+
+    @Test
+    fun buildsSendPayloadWithoutAuthOrIdentity() {
+        // The current protocol authenticates via the socket, so the payload is just the
+        // game, text, move number, and channel — no auth/username/ranking fields.
+        val msg = buildGameChatMessage(gameId = 42, body = "hi there", moveNumber = 7)
+        assertEquals(42L, msg["game_id"]?.jsonPrimitive?.longOrNull)
+        assertEquals("hi there", msg["body"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(7, msg["move_number"]?.jsonPrimitive?.intOrNull)
+        assertEquals("main", msg["type"]?.jsonPrimitive?.contentOrNull) // default channel
+        assertNull(msg["auth"])
+        assertNull(msg["username"])
     }
 }

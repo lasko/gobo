@@ -359,6 +359,7 @@ private fun GameScreen(
             ChatSheet(
                 messages = chat,
                 myPlayerId = myPlayerId,
+                onSend = { vm.sendChat(it) },
                 onDismiss = { showChat = false },
             )
         }
@@ -500,14 +501,16 @@ private fun PlayerTag(glyph: String, name: String, captures: Int, alignEnd: Bool
 }
 
 /**
- * Read-only in-game chat in a bottom sheet. Sending is intentionally absent for now — it
- * needs `game_chat_auth` and player metadata we don't yet capture (tracked separately).
+ * In-game chat in a bottom sheet: a scrolling history plus a compose box. Only reachable
+ * when chat is opted in. Your own line appears once the server echoes it back, so there's
+ * no optimistic insert to de-duplicate.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatSheet(
     messages: List<ChatMessage>,
     myPlayerId: Int,
+    onSend: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -515,9 +518,10 @@ private fun ChatSheet(
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
+    var draft by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp),
         ) {
             Text("Chat", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
@@ -530,18 +534,29 @@ private fun ChatSheet(
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(messages) { msg -> ChatLine(msg, isMine = msg.playerId == myPlayerId) }
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text(
-                "Read-only — chat is shown but can't be sent yet.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Message") },
+                    singleLine = true,
+                )
+                Button(
+                    onClick = { onSend(draft); draft = "" },
+                    enabled = draft.isNotBlank(),
+                ) { Text("Send") }
+            }
         }
     }
 }
