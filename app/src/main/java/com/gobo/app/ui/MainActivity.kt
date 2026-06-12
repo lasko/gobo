@@ -289,6 +289,7 @@ private fun GameScreen(
     val clock by vm.clock.collectAsState()
     val undoEnabled by vm.undoEnabled.collectAsState()
     val undoRequested by vm.undoRequested.collectAsState()
+    val reconnecting by vm.reconnecting.collectAsState()
 
     // Local 1 Hz tick driving the live countdown: OGS only sends a fresh clock per move, so we
     // recompute remaining time off the anchor ourselves. Runs only while playing — a finished or
@@ -383,6 +384,11 @@ private fun GameScreen(
             )
         }
         Box(Modifier.fillMaxSize().padding(padding)) {
+            // A dropped connection freezes the board; surface it so it doesn't read as a hung game.
+            // The board stays put and resyncs from the snapshot the reconnect's game/connect triggers.
+            if (reconnecting && phase != GamePhase.Connecting) {
+                ReconnectingBanner(Modifier.align(Alignment.TopCenter))
+            }
             when (val p = phase) {
                 // Don't show a board until the server confirms the game exists.
                 GamePhase.Connecting -> CenteredInfo {
@@ -555,6 +561,34 @@ private fun PlayerTag(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/** Transient pill shown while the realtime socket is dropped and retrying. */
+@Composable
+private fun ReconnectingBanner(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.padding(8.dp),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 3.dp,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CircularProgressIndicator(
+                Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+                "Reconnecting…",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
     }
 }
 

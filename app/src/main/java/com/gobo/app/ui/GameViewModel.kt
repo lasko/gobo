@@ -8,6 +8,7 @@ import com.gobo.app.board.OgsCoord
 import com.gobo.app.board.Stone
 import com.gobo.app.board.replayMoves
 import com.gobo.app.net.ChatMessage
+import com.gobo.app.net.ConnectionState
 import com.gobo.app.net.GameClock
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
@@ -102,6 +103,14 @@ class GameViewModel(
     private val _undoEnabled = MutableStateFlow(false)
     val undoEnabled = _undoEnabled.asStateFlow()
 
+    /**
+     * True while the realtime socket is dropped and reconnecting. The board freezes during the gap;
+     * the UI shows a banner so it reads as "reconnecting", not a hung game. On reconnect the re-sent
+     * `game/connect` triggers a fresh `gamedata` snapshot that resyncs everything.
+     */
+    private val _reconnecting = MutableStateFlow(false)
+    val reconnecting = _reconnecting.asStateFlow()
+
     private var gameId: Long = 0
     private var nextColor = Stone.BLACK
     private var blackId = 0
@@ -143,6 +152,7 @@ class GameViewModel(
             // Subscribe before connecting: the events flow has replay=0, so the burst that
             // arrives right after game/connect (gamedata, chat log) must not race the collector.
             launch { collectEvents() }
+            launch { collectConnection() }
             socket.connect {
                 socket.authenticate(cfg.userJwt)
                 socket.gameConnect(gameId, playerId = cfg.playerId, chat = chatEnabled)
@@ -158,6 +168,11 @@ class GameViewModel(
         if (_phase.value is GamePhase.Connecting) {
             end("The game didn't start. The bot may be busy — try another.", showBoard = false)
         }
+    }
+
+    /** Mirror the socket's connection lifecycle into a simple reconnecting flag for the UI. */
+    private suspend fun collectConnection() {
+        socket.connection.collect { _reconnecting.value = it == ConnectionState.Reconnecting }
     }
 
     private suspend fun collectEvents() {

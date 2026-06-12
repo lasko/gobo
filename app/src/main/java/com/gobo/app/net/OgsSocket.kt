@@ -1,7 +1,15 @@
 package com.gobo.app.net
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -43,12 +51,40 @@ class OgsSocket {
     private val _events = MutableSharedFlow<Pair<String, JsonElement>>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
 
-    private val client = OkHttpClient.Builder().build()
+    /** Connection lifecycle; the UI shows a reconnecting banner while not [ConnectionState.Connected]. */
+    private val _connection = MutableStateFlow(ConnectionState.Connecting)
+    val connection = _connection.asStateFlow()
 
+    private val client = OkHttpClient.Builder().build()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Re-run on every (re)connection — re-authenticates and re-connects the game to resync. */
+    private var onOpenCallback: (() -> Unit)? = null
+    /** True once [close] is called, so a deliberate teardown isn't treated as a drop to recover from. */
+    @Volatile private var manuallyClosed = false
+    private var reconnectAttempt = 0
+    private var reconnectJob: Job? = null
+
+    /**
+     * Open the game socket. [onOpen] (authenticate + game/connect) is stored and re-invoked on every
+     * reconnection so a dropped connection silently resyncs: the re-sent `game/connect` makes the
+     * server push a fresh `gamedata` snapshot, which rebuilds the whole board state.
+     */
     fun connect(onOpen: () -> Unit) {
+        onOpenCallback = onOpen
+        manuallyClosed = false
+        reconnectAttempt = 0
+        openSocket()
+    }
+
+    private fun openSocket() {
         val req = Request.Builder().url(Ogs.SOCKET).build()
         ws = client.newWebSocket(req, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) = onOpen()
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                reconnectAttempt = 0
+                _connection.value = ConnectionState.Connected
+                onOpenCallback?.invoke()
+            }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val arr = runCatching { json.parseToJsonElement(text).jsonArray }.getOrNull() ?: return
@@ -62,7 +98,28 @@ class OgsSocket {
                 // Numeric-id responses are ignored here; add a callback map if you
                 // need request/response correlation.
             }
+
+            // A network failure or a non-clean close (anything but our own code 1000) is a drop —
+            // recover from it. OkHttp won't reuse this WebSocket, so we open a fresh one.
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) =
+                scheduleReconnect()
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (code != 1000) scheduleReconnect()
+            }
         })
+    }
+
+    private fun scheduleReconnect() {
+        if (manuallyClosed) return
+        if (reconnectJob?.isActive == true) return // a retry is already pending
+        _connection.value = ConnectionState.Reconnecting
+        val wait = reconnectDelayMs(reconnectAttempt)
+        reconnectAttempt++
+        reconnectJob = scope.launch {
+            delay(wait)
+            if (!manuallyClosed) openSocket()
+        }
     }
 
     private fun send(command: String, data: JsonElement, withId: Boolean = false) {
@@ -162,7 +219,10 @@ class OgsSocket {
     }
 
     fun close() {
+        manuallyClosed = true
+        reconnectJob?.cancel()
         ws?.close(1000, "bye")
         ws = null
+        _connection.value = ConnectionState.Disconnected
     }
 }
