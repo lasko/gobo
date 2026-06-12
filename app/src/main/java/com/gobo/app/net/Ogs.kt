@@ -23,6 +23,12 @@ object Ogs {
     /** Open challenge (any human may accept). */
     const val CHALLENGES = "$BASE/api/v1/challenges/"
 
+    /** The current user's challenges (sent + received), not yet accepted. */
+    const val MY_CHALLENGES = "$BASE/api/v1/me/challenges"
+
+    /** A single challenge — DELETE to withdraw/cancel one you sent. */
+    fun challenge(id: Long) = "$BASE/api/v1/me/challenges/$id"
+
     /** Direct challenge to a specific player (used for bots). */
     fun playerChallenge(playerId: Long) = "$BASE/api/v1/players/$playerId/challenge/"
 
