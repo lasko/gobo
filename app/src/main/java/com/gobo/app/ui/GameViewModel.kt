@@ -12,6 +12,7 @@ import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
 import com.gobo.app.net.appendChat
 import com.gobo.app.net.parseGameChat
+import com.gobo.app.net.parseGameChatLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
@@ -91,6 +92,8 @@ class GameViewModel(
     private var proposedRemoval = ""
     /** Moves played so far; the move a chat line is attached to when sending. */
     private var moveNumber = 0
+    /** Whether chat was opted in for this game — gates reading the snapshot's chat log. */
+    private var chatEnabled = false
 
     /**
      * @param chatEnabled when true, request chat on connect so `game/<id>/chat` events
@@ -98,16 +101,19 @@ class GameViewModel(
      */
     fun start(gameId: Long, chatEnabled: Boolean = false) {
         this.gameId = gameId
+        this.chatEnabled = chatEnabled
         viewModelScope.launch {
             val cfg = rest.fetchUiConfig().getOrElse {
                 end("Couldn't connect: ${it.message}", showBoard = false)
                 return@launch
             }
+            // Subscribe before connecting: the events flow has replay=0, so the burst that
+            // arrives right after game/connect (gamedata, chat log) must not race the collector.
+            launch { collectEvents() }
             socket.connect {
                 socket.authenticate(cfg.userJwt)
                 socket.gameConnect(gameId, playerId = cfg.playerId, chat = chatEnabled)
             }
-            launch { collectEvents() }
             launch { keepAlive() }
             launch { startTimeout() }
         }
@@ -190,6 +196,12 @@ class GameViewModel(
         _lastMove.value = replay.lastMove
         proposedRemoval = obj["removed"]?.jsonPrimitive?.contentOrNull ?: proposedRemoval
         updateTurn()
+
+        // Pick up chat sent before we connected (e.g. a bot's opening greeting), which the
+        // snapshot carries in `chat_log`. appendChat de-dupes against any live copies.
+        if (chatEnabled) {
+            parseGameChatLog(data).forEach { _chat.value = appendChat(_chat.value, it) }
+        }
 
         // The snapshot is the game's confirmation. It also carries the phase: a game
         // we just opened may already be in scoring or finished (with outcome/winner).

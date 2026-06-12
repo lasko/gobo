@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GameChatTest {
@@ -83,6 +84,28 @@ class GameChatTest {
         // No chat_id -> a stable content composite so re-sends still de-dupe.
         val noId = parse("""{"message":{"player_id":7,"body":"hi","date":5}}""")
         assertEquals("7:5:hi", noId?.id)
+    }
+
+    @Test
+    fun parsesChatLogFromGamedataSnapshot() {
+        // History a late-connecting client would otherwise miss (e.g. a bot's greeting).
+        val gamedata = Json.parseToJsonElement(
+            """
+            {"phase":"play","chat_log":[
+              {"chat_id":"g1","player_id":99,"username":"bot","body":"Good luck!","date":1},
+              {"chat_id":"g2","player_id":99,"username":"bot","body":{"type":"analysis"},"date":2}
+            ]}
+            """.trimIndent(),
+        )
+        val log = parseGameChatLog(gamedata)
+        assertEquals(1, log.size) // the analysis-body line is skipped
+        assertEquals("Good luck!", log[0].body)
+        assertEquals("g1", log[0].id)
+    }
+
+    @Test
+    fun chatLogIsEmptyWhenFieldAbsent() {
+        assertTrue(parseGameChatLog(Json.parseToJsonElement("""{"phase":"play"}""")).isEmpty())
     }
 
     @Test

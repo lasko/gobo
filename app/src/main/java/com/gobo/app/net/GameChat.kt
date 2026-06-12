@@ -1,12 +1,12 @@
 package com.gobo.app.net
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
@@ -25,16 +25,11 @@ data class ChatMessage(
 )
 
 /**
- * Parse a `game/<id>/chat` socket event into a [ChatMessage]. The event wraps the line
- * under `message` (older payloads use `line`); the inner `body` is normally a string but
- * may instead be an analysis/variation object — those carry no plain text, so we skip
- * them (return null) since the view only renders text. Pure (no socket / Android deps) so
- * the wire-shape handling is unit-tested directly.
+ * Parse one chat line object — the `message`/`line` of a `game/<id>/chat` event, or an
+ * entry in the gamedata `chat_log`. Returns null for a non-text `body` (an analysis/
+ * variation object), since the view only renders text.
  */
-fun parseGameChat(data: JsonElement): ChatMessage? {
-    val obj = data as? JsonObject ?: return null
-    val line = (obj["message"] ?: obj["line"]) as? JsonObject ?: return null
-    // Only plain-text bodies are rendered; an object body is a shared variation.
+fun parseChatLine(line: JsonObject): ChatMessage? {
     val bodyPrim = line["body"] as? JsonPrimitive ?: return null
     if (!bodyPrim.isString) return null
     val body = bodyPrim.contentOrNull ?: return null
@@ -49,6 +44,28 @@ fun parseGameChat(data: JsonElement): ChatMessage? {
         body = body,
         date = date,
     )
+}
+
+/**
+ * Parse a `game/<id>/chat` socket event into a [ChatMessage]. The event wraps the line
+ * under `message` (older payloads use `line`). Pure (no socket / Android deps) so the
+ * wire-shape handling is unit-tested directly.
+ */
+fun parseGameChat(data: JsonElement): ChatMessage? {
+    val obj = data as? JsonObject ?: return null
+    val line = (obj["message"] ?: obj["line"]) as? JsonObject ?: return null
+    return parseChatLine(line)
+}
+
+/**
+ * Recover the chat history OGS embeds in the gamedata snapshot under `chat_log`. A client
+ * that connects after the game began isn't re-sent earlier lines as live events, so this
+ * is how messages like a bot's opening greeting are picked up. Empty when the field is
+ * absent. Feed each through [appendChat] so it de-dupes against any live copies.
+ */
+fun parseGameChatLog(gamedata: JsonElement): List<ChatMessage> {
+    val log = (gamedata as? JsonObject)?.get("chat_log") as? JsonArray ?: return emptyList()
+    return log.mapNotNull { (it as? JsonObject)?.let(::parseChatLine) }
 }
 
 /**
