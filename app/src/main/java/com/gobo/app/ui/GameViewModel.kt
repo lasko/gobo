@@ -8,9 +8,11 @@ import com.gobo.app.board.OgsCoord
 import com.gobo.app.board.Stone
 import com.gobo.app.board.replayMoves
 import com.gobo.app.net.ChatMessage
+import com.gobo.app.net.GameClock
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
 import com.gobo.app.net.appendChat
+import com.gobo.app.net.parseClock
 import com.gobo.app.net.parseGameChat
 import com.gobo.app.net.parseGameChatLog
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,6 +84,14 @@ class GameViewModel(
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chat = _chat.asStateFlow()
 
+    /**
+     * Latest clock snapshot (both players' times + the move anchor), or null before the first
+     * `clock`/gamedata arrives. The UI ticks a local 1 Hz countdown off this anchor — OGS only
+     * pushes a fresh clock on each move, not every second.
+     */
+    private val _clock = MutableStateFlow<GameClock?>(null)
+    val clock = _clock.asStateFlow()
+
     private var gameId: Long = 0
     private var nextColor = Stone.BLACK
     private var blackId = 0
@@ -134,6 +144,7 @@ class GameViewModel(
                 event.endsWith("/gamedata") -> handleSnapshot(data)
                 event.endsWith("/phase") -> handlePhase(data)
                 event.endsWith("/removed_stones_accepted") -> handleRemovalAccepted(data)
+                event.endsWith("/clock") -> handleClock(data)
                 event.endsWith("/chat") -> handleChat(data)
                 event == "notification" -> handleNotification(data)
             }
@@ -194,6 +205,9 @@ class GameViewModel(
         koPoint = replay.koPoint
         _board.value = fresh
         _lastMove.value = replay.lastMove
+        // The snapshot carries the current clock too; recover it so the countdown survives a
+        // mid-game (re)connect, not just live `clock` events.
+        obj["clock"]?.let { _clock.value = parseClock(it, System.currentTimeMillis()) }
         proposedRemoval = obj["removed"]?.jsonPrimitive?.contentOrNull ?: proposedRemoval
         updateTurn()
 
@@ -262,6 +276,11 @@ class GameViewModel(
     private fun handleChat(data: JsonElement) {
         val message = parseGameChat(data) ?: return
         _chat.value = appendChat(_chat.value, message)
+    }
+
+    /** A fresh clock arrives on every move; the UI ticks the live countdown off its anchor. */
+    private fun handleClock(data: JsonElement) {
+        parseClock(data, System.currentTimeMillis())?.let { _clock.value = it }
     }
 
     /**

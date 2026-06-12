@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -31,9 +32,12 @@ import com.gobo.app.board.GoBoard
 import com.gobo.app.board.MoveLegality
 import com.gobo.app.board.Stone
 import com.gobo.app.net.ChatMessage
+import com.gobo.app.net.GameClock
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.OgsSocket
 import com.gobo.app.net.UiConfig
+import com.gobo.app.net.formatClock
+import com.gobo.app.net.readClock
 import com.gobo.app.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -282,6 +286,19 @@ private fun GameScreen(
     val lastMove by vm.lastMove.collectAsState()
     val captures by vm.captures.collectAsState()
     val chat by vm.chat.collectAsState()
+    val clock by vm.clock.collectAsState()
+
+    // Local 1 Hz tick driving the live countdown: OGS only sends a fresh clock per move, so we
+    // recompute remaining time off the anchor ourselves. Runs only while playing — a finished or
+    // scoring game freezes the clock at its last value.
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    val ticking = phase == GamePhase.Playing
+    LaunchedEffect(ticking) {
+        while (ticking) {
+            nowMs = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
 
     val view = LocalView.current
     var ghost by remember { mutableStateOf<Pair<Int, Int>?>(null) }
@@ -373,7 +390,7 @@ private fun GameScreen(
                 GamePhase.Playing -> {
                     val opponent = if (myColor == Stone.BLACK) whiteName else blackName
                     GameBoardBody(
-                        board, blackName, whiteName, myColor, lastMove, captures,
+                        board, blackName, whiteName, myColor, lastMove, captures, clock, nowMs,
                         ghostMove = ghost, ghostColor = myColor ?: Stone.EMPTY, invalidCell = invalidCell,
                         statusLine = when {
                             myColor == null -> null
@@ -395,7 +412,7 @@ private fun GameScreen(
                     }
                 }
                 GamePhase.Scoring -> GameBoardBody(
-                    board, blackName, whiteName, myColor, lastMove, captures,
+                    board, blackName, whiteName, myColor, lastMove, captures, clock, nowMs,
                     statusLine = "Both players passed. Accept the score, or resume play.",
                     emphasizeStatus = true,
                     onTap = { _, _ -> },
@@ -406,7 +423,7 @@ private fun GameScreen(
                 // Finished game keeps the final position; a game that never started has none.
                 is GamePhase.Over -> if (p.showBoard) {
                     GameBoardBody(
-                        board, blackName, whiteName, myColor, lastMove, captures,
+                        board, blackName, whiteName, myColor, lastMove, captures, clock, nowMs,
                         statusLine = p.message,
                         emphasizeStatus = true,
                         onTap = { _, _ -> },
@@ -436,6 +453,8 @@ private fun GameBoardBody(
     myColor: Stone?,
     lastMove: Pair<Int, Int>?,
     captures: Pair<Int, Int>,
+    clock: GameClock?,
+    nowMs: Long,
     ghostMove: Pair<Int, Int>? = null,
     ghostColor: Stone = Stone.EMPTY,
     invalidCell: Pair<Int, Int>? = null,
@@ -448,9 +467,18 @@ private fun GameBoardBody(
         Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         val (capturesByBlack, capturesByWhite) = captures
+        // Only the side to move ticks; readClock freezes the other. nowMs is shifted by the
+        // server skew so the countdown tracks the server's clock, not just the device's.
+        val serverNow = nowMs + (clock?.skewMs ?: 0L)
+        val blackClock = clock?.let {
+            formatClock(readClock(it.black, it.currentPlayerId == it.blackPlayerId, it.lastMoveMs, serverNow))
+        }
+        val whiteClock = clock?.let {
+            formatClock(readClock(it.white, it.currentPlayerId == it.whitePlayerId, it.lastMoveMs, serverNow))
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            PlayerTag("●", blackName, capturesByBlack)
-            PlayerTag("○", whiteName, capturesByWhite, alignEnd = true)
+            PlayerTag("●", blackName, capturesByBlack, blackClock, clock?.currentPlayerId == clock?.blackPlayerId)
+            PlayerTag("○", whiteName, capturesByWhite, whiteClock, clock?.currentPlayerId == clock?.whitePlayerId, alignEnd = true)
         }
         val colorLabel = when (myColor) {
             Stone.BLACK -> "You are playing Black ●"
@@ -487,11 +515,33 @@ private fun GameBoardBody(
     }
 }
 
-/** A player's stone color, name, and running prisoner (capture) count. */
+/**
+ * A player's stone color, name, running prisoner (capture) count, and clock. The clock uses a
+ * monospaced family with tabular figures so the countdown doesn't jitter between ticks, and is
+ * tinted with the accent while it's this player's turn. [clockText] is null when no clock is known.
+ */
 @Composable
-private fun PlayerTag(glyph: String, name: String, captures: Int, alignEnd: Boolean = false) {
+private fun PlayerTag(
+    glyph: String,
+    name: String,
+    captures: Int,
+    clockText: String?,
+    isTurn: Boolean,
+    alignEnd: Boolean = false,
+) {
     Column(horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start) {
         Text("$glyph $name", style = MaterialTheme.typography.bodyMedium)
+        if (clockText != null) {
+            Text(
+                clockText,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontFeatureSettings = "tnum",
+                ),
+                color = if (isTurn) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+            )
+        }
         Text(
             "$captures captured",
             style = MaterialTheme.typography.labelSmall,
