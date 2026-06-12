@@ -91,7 +91,12 @@ class ChallengesTest {
         val body = buildChallengeBody(spec())
 
         assertEquals("automatic", body["challenger_color"]?.jsonPrimitive?.contentOrNull)
+        // -1000/1000 is OGS' "no rank restriction" sentinel (what the web client posts).
         assertEquals(-1000, body["min_ranking"]?.jsonPrimitive?.intOrNull)
+        assertEquals(1000, body["max_ranking"]?.jsonPrimitive?.intOrNull)
+        // Fields the open-seek endpoint requires (a missing one 500s it).
+        assertEquals(false, body["invite_only"]?.jsonPrimitive?.booleanOrNull)
+        assertEquals(0, body["rengo_auto_start"]?.jsonPrimitive?.intOrNull)
 
         val game = body["game"]!!.jsonObject
         assertEquals("Friendly Match", game["name"]?.jsonPrimitive?.contentOrNull) // blank -> default
@@ -99,11 +104,11 @@ class ChallengesTest {
         assertEquals(13, game["height"]?.jsonPrimitive?.intOrNull)
         assertEquals(2, game["handicap"]?.jsonPrimitive?.intOrNull)
         assertEquals(false, game["ranked"]?.jsonPrimitive?.booleanOrNull)
-        assertEquals("live", game["speed"]?.jsonPrimitive?.contentOrNull)
         assertEquals("fischer", game["time_control"]?.jsonPrimitive?.contentOrNull)
 
         val tcp = game["time_control_parameters"]!!.jsonObject
         assertEquals("fischer", tcp["system"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("live", tcp["speed"]?.jsonPrimitive?.contentOrNull) // speed lives here, not on game
         assertEquals(120, tcp["initial_time"]?.jsonPrimitive?.intOrNull)
         assertEquals(30, tcp["time_increment"]?.jsonPrimitive?.intOrNull)
         assertEquals(300, tcp["max_time"]?.jsonPrimitive?.intOrNull)
@@ -111,9 +116,16 @@ class ChallengesTest {
 
     @Test
     fun buildChallengeBodyOmitsKomiWhenAutomatic() {
+        // In automatic mode the server computes komi, so the web client omits it from the body.
         val game = buildChallengeBody(spec(komiAuto = true))["game"]!!.jsonObject
         assertEquals("automatic", game["komi_auto"]?.jsonPrimitive?.contentOrNull)
-        assertNull(game["komi"]) // not sent when automatic
+        assertNull(game["komi"])
+        // The time-control system is duplicated inside time_control_parameters.
+        val tc = game["time_control_parameters"]!!.jsonObject
+        assertEquals(
+            tc["system"]?.jsonPrimitive?.contentOrNull,
+            tc["time_control"]?.jsonPrimitive?.contentOrNull,
+        )
     }
 
     @Test
