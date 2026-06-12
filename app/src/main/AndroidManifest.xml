@@ -15,9 +15,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Gobo">
 
+        <!-- Portrait-locked for now: the goban is square and wants portrait, and locking avoids the
+             Activity recreation on rotation that wipes the (remember-held) navigation state. Proper
+             landscape/tablet support is tracked in #35. -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
