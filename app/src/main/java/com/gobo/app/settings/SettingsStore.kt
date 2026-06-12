@@ -26,6 +26,14 @@ class SettingsStore(context: Context) {
     private val _confirmMoves = MutableStateFlow(prefs.getBoolean(KEY_CONFIRM_MOVES, false))
     val confirmMoves = _confirmMoves.asStateFlow()
 
+    /**
+     * When on, games are opened with chat requested and the in-game chat is shown.
+     * **Default off** — keeping the privacy posture opt-in: while off, the socket connects
+     * with `chat = false`, so no chat data is requested or received at all.
+     */
+    private val _chatEnabled = MutableStateFlow(prefs.getBoolean(KEY_CHAT_ENABLED, false))
+    val chatEnabled = _chatEnabled.asStateFlow()
+
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME, mode.name).apply()
         _themeMode.value = mode
@@ -36,6 +44,11 @@ class SettingsStore(context: Context) {
         _confirmMoves.value = enabled
     }
 
+    fun setChatEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CHAT_ENABLED, enabled).apply()
+        _chatEnabled.value = enabled
+    }
+
     private fun loadThemeMode(): ThemeMode =
         runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, null) ?: ThemeMode.SYSTEM.name) }
             .getOrDefault(ThemeMode.SYSTEM)
@@ -43,5 +56,6 @@ class SettingsStore(context: Context) {
     private companion object {
         const val KEY_THEME = "theme_mode"
         const val KEY_CONFIRM_MOVES = "confirm_moves"
+        const val KEY_CHAT_ENABLED = "chat_enabled"
     }
 }

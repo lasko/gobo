@@ -21,6 +21,8 @@ fun SettingsScreen(
     onThemeChange: (ThemeMode) -> Unit,
     confirmMoves: Boolean,
     onConfirmMovesChange: (Boolean) -> Unit,
+    chatEnabled: Boolean,
+    onChatEnabledChange: (Boolean) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Appearance", style = MaterialTheme.typography.labelLarge)
@@ -60,6 +62,29 @@ fun SettingsScreen(
             }
             Spacer(Modifier.width(8.dp))
             Switch(checked = confirmMoves, onCheckedChange = onConfirmMovesChange)
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Privacy", style = MaterialTheme.typography.labelLarge)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { onChatEnabledChange(!chatEnabled) }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("In-game chat")
+                Text(
+                    // Be explicit that turning this on relaxes the default no-chat posture.
+                    "Off by default. When on, games you open request and display chat. " +
+                        "Messages are sent to OGS — only enable if you're comfortable with that.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Switch(checked = chatEnabled, onCheckedChange = onChatEnabledChange)
         }
 
         // Push support to the bottom so it stays out of the way.
