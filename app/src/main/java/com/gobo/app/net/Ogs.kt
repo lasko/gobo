@@ -39,9 +39,11 @@ object Ogs {
      * Browse list of public puzzle collections (tsumego). [ordering] is an OGS sort field
      * (`rating`, `puzzle_count`, `view_count`, `solved_count`, `created`, `min_rank`, `name`),
      * prefixed with `-` for descending. Paginated; we pull the first [pageSize] of the sorted list.
+     * `puzzle_count__gt=0` excludes empty collections server-side — otherwise an *ascending* sort
+     * surfaces a page of zero-puzzle stubs that we'd then filter to nothing (the "no results" bug).
      */
     fun puzzleCollections(ordering: String, pageSize: Int = 50) =
-        "$BASE/api/v1/puzzles/collections/?ordering=$ordering&page_size=$pageSize"
+        "$BASE/api/v1/puzzles/collections/?ordering=$ordering&puzzle_count__gt=0&page_size=$pageSize"
 
     /** A single puzzle (starting position + solution tree). */
     fun puzzle(id: Long) = "$BASE/api/v1/puzzles/$id"
