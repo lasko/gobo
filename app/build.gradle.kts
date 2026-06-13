@@ -5,10 +5,27 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-// Version is injected by CI from the release tag (-PversionName / -PversionCode); the literals are
-// the local-build fallback so a plain `./gradlew assembleDebug` still works. See .github/workflows.
-val appVersionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
-val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+// Versioning follows Semantic Versioning (https://semver.org). CI injects the release version from
+// the git tag via -PversionName (tag v0.2.0 -> "0.2.0"); the literal below is the local-build /
+// next-release default — bump it to match each release. versionCode is *derived* from versionName so
+// the two move in lockstep and there's only one number to maintain; -PversionCode can still override.
+val appVersionName = (project.findProperty("versionName") as String?) ?: "0.2.0"
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull()
+    ?: semverToVersionCode(appVersionName)
+
+/**
+ * Map a SemVer string to a monotonic Android versionCode: MAJOR*1_000_000 + MINOR*1_000 + PATCH
+ * (each component assumed < 1000), e.g. "0.2.0" -> 2000, "1.4.3" -> 1_004_003. A leading "v" and any
+ * pre-release/build suffix ("0.2.0-rc1") are ignored. Floored at 1 (Android requires versionCode >= 1).
+ */
+fun semverToVersionCode(version: String): Int {
+    val core = version.removePrefix("v").substringBefore('-').substringBefore('+')
+    val parts = core.split('.')
+    val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+    return (major * 1_000_000 + minor * 1_000 + patch).coerceAtLeast(1)
+}
 
 // Release signing comes from env vars CI sets after decoding the keystore Secret. When they're
 // absent (local build, or CI without Secrets configured), the release type falls back to the debug
