@@ -94,6 +94,14 @@ jobs:
           fi
           echo "OK: INTERNET-only"
 
+      - name: Print signing certificate
+        # Surfaces which cert signed this build, so a release records it and an accidental
+        # debug-signed build is obvious in the log. Compare the SHA-256 against your keystore
+        # (keytool -list -v ...) to confirm it's your release key.
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          "$APKSIGNER" verify --print-certs "${{ steps.apk.outputs.path }}" | grep -i 'SHA-256' || true
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

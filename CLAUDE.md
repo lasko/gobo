@@ -67,6 +67,13 @@ OGS API responses are easy to inspect with the public REST API (no auth) or by p
 - **Signing** is keystore-from-Secrets when present, **debug-key fallback otherwise** — so a secret-less build still produces an installable (testing-only) APK. To enable real signing, add repo Secrets: `RELEASE_KEYSTORE_BASE64` (base64 of the `.jks`), `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`. The keystore lives **only** in Secrets, never the repo. The signing path keys off the `KEYSTORE_FILE` env var the workflow sets after decoding.
 - **R8/minify:** the release build minifies; `proguard-rules.pro` has a `-dontwarn com.google.errorprone.annotations.**` because `security-crypto`→Tink references compile-only Error Prone annotations (a release-only failure the debug build hides).
 - Build it locally with `.\gradlew.bat assembleRelease "-PversionName=0.2.0" "-PversionCode=2"` (quote the `-P` args in PowerShell).
+- **Verify a release is signed with the right key:** CI logs the signer (the "Print signing certificate" step). To check a downloaded APK locally, compare its signer SHA-256 against the keystore's:
+  ```powershell
+  $apksigner = (Get-ChildItem "$env:LOCALAPPDATA\Android\Sdk\build-tools\*\apksigner.bat" | Sort-Object FullName | Select-Object -Last 1).FullName
+  & $apksigner verify --print-certs .\gobo-0.2.0.apk        # "Signer #1 certificate SHA-256 digest: …"
+  & "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe" -list -v -keystore "$HOME\keys\gobo-release.jks" -alias gobo   # "SHA256: …"
+  ```
+  They match modulo formatting (keytool prints upper-case hex with colons, apksigner lower-case without).
 
 ## Architecture notes
 
