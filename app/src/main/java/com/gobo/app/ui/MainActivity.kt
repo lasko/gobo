@@ -145,6 +145,7 @@ private enum class Destination(val title: String) {
     Games("My Games"),
     NewGame("New Game"),
     Watch("Watch Game"),
+    GoTV("GoTV"),
     Puzzles("Puzzles"),
     Settings("Settings"),
 }
@@ -282,6 +283,10 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
                         val liveVm = remember { LiveGamesViewModel(OgsSocket(), config.userJwt) }
                         DisposableEffect(Unit) { onDispose { liveVm.close() } }
                         WatchScreen(liveVm, onWatch = { id -> gameId = id; spectating = true; challengeId = 0L })
+                    }
+                    Destination.GoTV -> {
+                        val goTvVm = remember { GoTvViewModel(rest) }
+                        GoTvScreen(goTvVm)
                     }
                     Destination.Puzzles -> {
                         val puzzlesVm = remember { PuzzlesViewModel(rest) }

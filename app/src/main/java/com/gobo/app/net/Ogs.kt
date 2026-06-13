@@ -51,6 +51,9 @@ object Ogs {
     /** A collection's ordered puzzle list ({id, name}), keyed off any puzzle in it — for prev/next. */
     fun puzzleCollectionSummary(puzzleId: Long) = "$BASE/api/v1/puzzles/$puzzleId/collection_summary"
 
+    /** GoTV: external live Go streams (Twitch/YouTube) — a watch list, not OGS games. */
+    const val GOTV_STREAMS = "$BASE/api/v1/gotv/streams"
+
     // Realtime WebSocket termination server
     const val SOCKET = "wss://online-go.com/socket"
 }

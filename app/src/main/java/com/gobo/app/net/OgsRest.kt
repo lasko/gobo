@@ -111,6 +111,15 @@ class OgsRest(private val store: TokenStore) {
             get(Ogs.puzzleCollectionSummary(puzzleId), token) { body -> parseCollectionSummary(body) }
         }
 
+    /** Fetch the GoTV list of external live Go streams (Twitch/YouTube). Public data; token sent for
+     *  a uniform network surface. */
+    suspend fun fetchGoStreams(): Result<List<GoStream>> = withContext(Dispatchers.IO) {
+        val token = store.accessToken ?: return@withContext Result.failure(
+            IllegalStateException("Not logged in")
+        )
+        get(Ogs.GOTV_STREAMS, token) { body -> parseGoStreams(body) }
+    }
+
     /**
      * Create a challenge. For [Opponent.Human] this posts an open seek that any
      * player may accept; for [Opponent.Computer] it challenges the bot directly,
