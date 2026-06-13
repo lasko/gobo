@@ -1,0 +1,111 @@
+name: Release APK
+
+# Build a versioned release APK. Pushing a `v*` tag cuts a GitHub Release with the APK attached;
+# workflow_dispatch is for manual/dry builds (artifact only). See issue #46.
+#
+# Signing: if the RELEASE_KEYSTORE_BASE64 secret (+ password secrets) is configured, the APK is
+# signed with that keystore; otherwise it falls back to the debug key (installable for testing, but
+# not update-in-place across releases). No secret is required to get a working build.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name for a manual build (e.g. 0.2.0)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write # create the GitHub Release and upload the APK
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Secrets can't be referenced in `if:` conditions, so surface presence as a plain env flag.
+      HAS_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Derive version
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            NAME="${GITHUB_REF_NAME#v}"            # v0.2.0 -> 0.2.0
+          else
+            NAME="${{ github.event.inputs.version }}"
+            [ -z "$NAME" ] && NAME="0.0.0-dev"
+          fi
+          # run_number is monotonic across runs of this workflow -> a valid increasing versionCode.
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Building $NAME (code $GITHUB_RUN_NUMBER)"
+
+      - name: Unit tests + lint
+        run: ./gradlew testDebugUnitTest lint --no-daemon
+
+      - name: Decode release keystore
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          # build.gradle.kts reads these env vars; their presence switches on release signing.
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease \
+            -PversionName=${{ steps.version.outputs.name }} \
+            -PversionCode=${{ steps.version.outputs.code }} \
+            --no-daemon
+
+      - name: Stage APK
+        id: apk
+        run: |
+          SRC=$(find app/build/outputs/apk/release -name '*.apk' | head -n1)
+          DEST="gobo-${{ steps.version.outputs.name }}.apk"
+          cp "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: Assert INTERNET-only (privacy charter)
+        # The app's whole point is zero tracking; fail the build if any platform permission beyond
+        # INTERNET sneaks in. (The app's own com.gobo.app.* signature permission is allowed.)
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -n1)
+          BAD=$("$AAPT" dump permissions "${{ steps.apk.outputs.path }}" \
+            | grep 'uses-permission:' | grep 'android.permission.' \
+            | grep -v 'android.permission.INTERNET' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::Release APK requests platform permissions beyond INTERNET:"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "OK: INTERNET-only"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gobo-${{ steps.version.outputs.name }}
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Warn when debug-signed
+        if: env.HAS_KEYSTORE != 'true'
+        run: echo "::warning::No RELEASE_KEYSTORE_BASE64 secret — APK is debug-signed (fine for testing, not for update-in-place distribution). Add the keystore secrets to enable release signing."
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.path }}" --title "$GITHUB_REF_NAME" --generate-notes

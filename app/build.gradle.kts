@@ -5,6 +5,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Version is injected by CI from the release tag (-PversionName / -PversionCode); the literals are
+// the local-build fallback so a plain `./gradlew assembleDebug` still works. See .github/workflows.
+val appVersionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+
+// Release signing comes from env vars CI sets after decoding the keystore Secret. When they're
+// absent (local build, or CI without Secrets configured), the release type falls back to the debug
+// key below so `assembleRelease` still yields an installable APK for testing.
+val releaseKeystore: String? = System.getenv("KEYSTORE_FILE")
+
 android {
     namespace = "com.gobo.app"
     compileSdk = 36
@@ -13,13 +23,26 @@ android {
         applicationId = "com.gobo.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         // OAuth public client ID. Not a secret (PKCE is used), but kept here
         // rather than hardcoded across the codebase so it's easy to audit.
         manifestPlaceholders["ogsRedirectScheme"] = "gobo"
         manifestPlaceholders["appAuthRedirectScheme"] = "gobo"
+    }
+
+    signingConfigs {
+        create("release") {
+            // Populated only when CI provides the decoded keystore; otherwise left empty and unused
+            // (the release buildType falls back to the debug signing config).
+            if (releaseKeystore != null) {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -30,6 +53,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = if (releaseKeystore != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
     compileOptions {
