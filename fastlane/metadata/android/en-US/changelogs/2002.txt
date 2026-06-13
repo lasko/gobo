@@ -1,1 +1,1 @@
-* Fix login on some phones: the OGS sign-in now returns to the app after you tap Authorize (removed a launch-mode conflict with AppAuth's redirect handling).
+* Fix login on privacy browsers (e.g. Cromite): the OGS sign-in now returns to the app after you tap Authorize. The release build was opening a plain browser tab instead of a secure Custom Tab, so the redirect back to the app was dropped.

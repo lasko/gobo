@@ -12,6 +12,15 @@
 -keep class net.openid.appauth.** { *; }
 -dontwarn net.openid.appauth.**
 
+# Custom Tabs: AppAuth binds the Custom Tabs service (CustomTabsClient.bind…/newSession,
+# CustomTabsIntent) to open the OGS login in a *Custom Tab* — which is what returns to the app
+# on the gobo://oauth redirect. R8 full mode strips these (our code never references them
+# directly), so the release build fell back to opening a plain browser tab. Chrome happens to
+# dispatch the custom-scheme redirect from a plain tab too (masking the bug), but hardened
+# browsers like Cromite do not, so login hung on the OGS page. Keep the Custom Tabs API.
+-keep class androidx.browser.customtabs.** { *; }
+-dontwarn androidx.browser.**
+
 # androidx.security-crypto pulls in Tink, which references compile-only Error Prone
 # annotations that aren't on the runtime classpath. They're harmless at runtime, so
 # silence R8's missing-class errors for them (these would fail the release build only).
