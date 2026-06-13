@@ -19,11 +19,16 @@
              ourselves so rotation re-lays-out in place — Compose reflows via BoxWithConstraints —
              instead of recreating the Activity (which would drop the realtime socket and reload the
              UI config on every rotation). Nav state is also rememberSaveable as a process-death net. -->
+        <!-- Default launch mode (no singleTask). AppAuth's own AuthorizationManagementActivity is
+             singleTask in our task; a *second* singleTask activity (this one, same taskAffinity)
+             makes the OS clear it on the OAuth redirect, so the gobo://oauth result is lost and login
+             never returns to the app. This is OS/OEM-dependent (it happened to work on the emulator
+             but not on real phones). AppAuth delivers the redirect as an Activity result, so the
+             launcher needs no special mode. -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
-            android:launchMode="singleTask">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

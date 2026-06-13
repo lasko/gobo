@@ -9,7 +9,7 @@ plugins {
 // the git tag via -PversionName (tag v0.2.0 -> "0.2.0"); the literal below is the local-build /
 // next-release default — bump it to match each release. versionCode is *derived* from versionName so
 // the two move in lockstep and there's only one number to maintain; -PversionCode can still override.
-val appVersionName = (project.findProperty("versionName") as String?) ?: "0.2.1"
+val appVersionName = (project.findProperty("versionName") as String?) ?: "0.2.2"
 val appVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull()
     ?: semverToVersionCode(appVersionName)
 

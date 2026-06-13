@@ -1,0 +1,1 @@
+* Fix login on some phones: the OGS sign-in now returns to the app after you tap Authorize (removed a launch-mode conflict with AppAuth's redirect handling).
