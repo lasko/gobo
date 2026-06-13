@@ -145,6 +145,7 @@ private enum class Destination(val title: String) {
     Games("My Games"),
     NewGame("New Game"),
     Watch("Watch Game"),
+    Puzzles("Puzzles"),
     Settings("Settings"),
 }
 
@@ -156,6 +157,8 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
     var spectating by remember { mutableStateOf(false) }
     // Non-zero while waiting on an open challenge we posted (drives the keepalive + Cancel).
     var challengeId by remember { mutableStateOf(0L) }
+    // Non-null while solving a puzzle (takes over the screen like an open game).
+    var puzzleId by remember { mutableStateOf<Long?>(null) }
     var destination by remember { mutableStateOf(Destination.Games) }
 
     // An open game takes over the whole screen (no drawer) with its own back nav.
@@ -181,6 +184,18 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
             waitingForOpponent = challengeId != 0L,
             onBack = { gameId = null; challengeId = 0L },
             onLogout = onLogout,
+        )
+        return
+    }
+
+    // Solving a puzzle takes over the whole screen with its own back nav, like an open game.
+    val pid = puzzleId
+    if (pid != null) {
+        val vm = remember(pid) { PuzzleViewModel(rest, pid) }
+        PuzzleScreen(
+            vm,
+            onBack = { puzzleId = null },
+            onNavigate = { puzzleId = it },
         )
         return
     }
@@ -267,6 +282,10 @@ private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, o
                         val liveVm = remember { LiveGamesViewModel(OgsSocket(), config.userJwt) }
                         DisposableEffect(Unit) { onDispose { liveVm.close() } }
                         WatchScreen(liveVm, onWatch = { id -> gameId = id; spectating = true; challengeId = 0L })
+                    }
+                    Destination.Puzzles -> {
+                        val puzzlesVm = remember { PuzzlesViewModel(rest) }
+                        PuzzlesScreen(puzzlesVm, onOpen = { puzzleId = it.startingPuzzleId })
                     }
                     Destination.Settings -> {
                         val themeMode by settings.themeMode.collectAsState()

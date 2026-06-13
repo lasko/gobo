@@ -81,6 +81,36 @@ class OgsRest(private val store: TokenStore) {
         delete(Ogs.challenge(challengeId), token)
     }
 
+    /** Browse the public puzzle (tsumego) collections, server-sorted by [sort]. Public data, but we
+     *  send the token like every other call so the network surface stays uniform. */
+    suspend fun fetchPuzzleCollections(sort: PuzzleSort, descending: Boolean): Result<List<PuzzleCollection>> =
+        withContext(Dispatchers.IO) {
+            val token = store.accessToken ?: return@withContext Result.failure(
+                IllegalStateException("Not logged in")
+            )
+            val ordering = (if (descending) "-" else "") + sort.key
+            get(Ogs.puzzleCollections(ordering), token) { body -> parsePuzzleCollections(body) }
+        }
+
+    /** Fetch a single puzzle's starting position + solution tree. */
+    suspend fun fetchPuzzle(id: Long): Result<Puzzle> = withContext(Dispatchers.IO) {
+        val token = store.accessToken ?: return@withContext Result.failure(
+            IllegalStateException("Not logged in")
+        )
+        get(Ogs.puzzle(id), token) { body ->
+            parsePuzzle(body) ?: error("malformed puzzle $id")
+        }
+    }
+
+    /** Fetch the ordered puzzle list of the collection containing [puzzleId], for prev/next nav. */
+    suspend fun fetchCollectionSummary(puzzleId: Long): Result<List<PuzzleRef>> =
+        withContext(Dispatchers.IO) {
+            val token = store.accessToken ?: return@withContext Result.failure(
+                IllegalStateException("Not logged in")
+            )
+            get(Ogs.puzzleCollectionSummary(puzzleId), token) { body -> parseCollectionSummary(body) }
+        }
+
     /**
      * Create a challenge. For [Opponent.Human] this posts an open seek that any
      * player may accept; for [Opponent.Computer] it challenges the bot directly,
