@@ -35,6 +35,15 @@ object Ogs {
     /** Single game detail — authoritative outcome/winner once a game has finished. */
     fun game(gameId: Long) = "$BASE/api/v1/games/$gameId"
 
+    /** Browse list of public puzzle collections (tsumego). Paginated. */
+    const val PUZZLE_COLLECTIONS = "$BASE/api/v1/puzzles/collections/"
+
+    /** A single puzzle (starting position + solution tree). */
+    fun puzzle(id: Long) = "$BASE/api/v1/puzzles/$id"
+
+    /** A collection's ordered puzzle list ({id, name}), keyed off any puzzle in it — for prev/next. */
+    fun puzzleCollectionSummary(puzzleId: Long) = "$BASE/api/v1/puzzles/$puzzleId/collection_summary"
+
     // Realtime WebSocket termination server
     const val SOCKET = "wss://online-go.com/socket"
 }
