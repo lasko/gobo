@@ -59,6 +59,15 @@ adb shell am start -n com.gobo.app/.ui.MainActivity   # launch
 
 OGS API responses are easy to inspect with the public REST API (no auth) or by probing the socket — useful for confirming payload shapes before coding against them. Example: `https://online-go.com/api/v1/players/?username=<name>`.
 
+### Releases / CI (#46)
+
+`.github/workflows/release.yml` builds a **versioned release APK**. Push a `v*` tag → it runs `testDebugUnitTest` + `lint`, builds `assembleRelease`, asserts the APK is **`INTERNET`-only** (`aapt dump permissions` — the app's own `com.gobo.app.*` signature permission is allowed; any other `android.permission.*` fails the build), and publishes a **GitHub Release** with the APK attached. `workflow_dispatch` does the same minus the Release (artifact only).
+
+- **Versioning is injected**, not hardcoded: `build.gradle.kts` reads `-PversionName`/`-PversionCode` (CI passes the tag minus `v`, and `github.run_number` as a monotonic `versionCode`); the literals `0.1.0`/`1` are only the local-build fallback.
+- **Signing** is keystore-from-Secrets when present, **debug-key fallback otherwise** — so a secret-less build still produces an installable (testing-only) APK. To enable real signing, add repo Secrets: `RELEASE_KEYSTORE_BASE64` (base64 of the `.jks`), `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`. The keystore lives **only** in Secrets, never the repo. The signing path keys off the `KEYSTORE_FILE` env var the workflow sets after decoding.
+- **R8/minify:** the release build minifies; `proguard-rules.pro` has a `-dontwarn com.google.errorprone.annotations.**` because `security-crypto`→Tink references compile-only Error Prone annotations (a release-only failure the debug build hides).
+- Build it locally with `.\gradlew.bat assembleRelease "-PversionName=0.2.0" "-PversionCode=2"` (quote the `-P` args in PowerShell).
+
 ## Architecture notes
 
 - **Single Activity, Compose-only.** `MainActivity` holds a `Session` sealed interface (`NotLoggedIn` → `LoadingConfig` → `Ready`). When `Ready`, `ReadyApp` renders a `ModalNavigationDrawer` (My Games / New Game / Log out). An open game takes over the full screen with its own back nav.
