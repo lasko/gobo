@@ -1,0 +1,23 @@
+Gobo is a native, privacy-respecting Android client for playing Go on Online-Go.com (OGS). The privacy stance is the product, not an afterthought: one permission, no trackers, no proprietary SDKs.
+
+Features:
+
+* Sign in with your OGS account via OAuth2 + PKCE, using a browser Custom Tab — never an embedded WebView, so the app never sees your password.
+* My Games — your active games with a "your turn" indicator.
+* Play in realtime — live board updates, captures, pass, resign, and the two-pass stone-removal/scoring flow, over the OGS socket.
+* Immediate move feedback — illegal taps (occupied points, suicide, simple ko) flash locally instead of waiting for the server, plus an optional two-tap "confirm moves" mode.
+* Start a game — challenge an online bot or post an open challenge for a human, with full control over board size, rules, time settings, handicap, and komi.
+* Watch — browse and spectate live games, and find live Go streams via GoTV (opened in your browser).
+* Puzzles — browse tsumego collections (sortable by rating, difficulty, and more) and solve them on the board, with a hint that shows the right move.
+* Optional in-game chat — off by default; enable it in Settings to read a game's chat.
+* Light / Dark / System theme, remembered across restarts.
+
+Privacy posture:
+
+* One permission: INTERNET. No location, contacts, camera, or advertising ID.
+* No analytics or tracking SDKs — no Firebase, no crash reporters, no ad libraries. The dependency list is short on purpose so it can be audited at a glance.
+* No embedded WebView for login. OAuth uses a Custom Tab, and the PKCE code verifier never leaves the device.
+* Minimal data at rest — only OAuth tokens are stored, encrypted, and excluded from cloud backup.
+* No optional telemetry is sent to OGS, even where the protocol allows it.
+
+Gobo connects to the third-party Online-Go.com service to function (you need an OGS account).

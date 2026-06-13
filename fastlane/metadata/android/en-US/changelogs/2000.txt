@@ -1,0 +1,8 @@
+First release published to FOSS app stores.
+
+* Play live games against bots or open human challenges on OGS.
+* Realtime board, captures, pass/resign, and stone-removal scoring.
+* Watch live games and GoTV streams; spectate by link.
+* Puzzles: browse tsumego collections (sortable) and solve with hints.
+* Finished-game review, optional in-game chat, and Light/Dark/System themes.
+* One permission (INTERNET), no analytics, no trackers.
