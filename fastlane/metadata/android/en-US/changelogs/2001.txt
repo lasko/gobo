@@ -1,0 +1,2 @@
+* Fix login on release builds: the OGS browser sign-in now completes correctly (R8 was stripping AppAuth's redirect handler).
+* Landscape / tablet support: the board reflows beside the controls, and rotating no longer interrupts a game.
