@@ -157,6 +157,6 @@ Manual smoke flow (covers the parts unit tests can't): log in → drawer → **N
 
 ## Gotchas
 
-- Material3 `menuAnchor()` no-arg is deprecated in 1.3 but still compiles (used in dropdowns) — a warning, not an error.
+- Material3 dropdowns use the current `menuAnchor(MenuAnchorType.PrimaryNotEditable)` overload (the no-arg `menuAnchor()` is deprecated) — the anchor fields are read-only, hence `PrimaryNotEditable`.
 - `Stone` has three values (`EMPTY`, `BLACK`, `WHITE`); `when` over a `Stone?` color needs to handle `EMPTY`/`else`, not just BLACK/WHITE/null.
 - The socket's `events` flow has `replay = 0`; subscribe *before* connecting if you need a one-shot broadcast like `active-bots`.
