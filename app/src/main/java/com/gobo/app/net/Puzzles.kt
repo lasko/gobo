@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -24,12 +25,36 @@ data class PuzzleCollection(
     val id: Long,
     val name: String,
     val puzzleCount: Int,
+    /** OGS rank ints (>=30 dan, else kyu) bracketing the collection's difficulty; see [formatDifficulty]. */
     val minRank: Int,
     val maxRank: Int,
+    /** Average puzzle rating (0..5) and how many ratings it's based on. */
+    val rating: Double,
+    val ratingCount: Int,
+    val viewCount: Int,
+    val solvedCount: Int,
+    /** ISO-8601 creation timestamp from the API; render via [formatPuzzleDate]. */
+    val created: String,
+    val ownerName: String,
     val startingPuzzleId: Long,
     val width: Int,
     val height: Int,
 )
+
+/**
+ * How to order the collection browse list. [key] is the OGS `ordering` field; [descending] is the
+ * sensible default direction (most popular/best first for counts & rating, ascending for name &
+ * easiest-first difficulty). The screen lets the user flip direction.
+ */
+enum class PuzzleSort(val label: String, val key: String, val descending: Boolean) {
+    Rating("Rating", "rating", true),
+    Puzzles("Puzzles", "puzzle_count", true),
+    Difficulty("Difficulty", "min_rank", false),
+    Views("Views", "view_count", true),
+    Solved("Solved", "solved_count", true),
+    Newest("Created", "created", true),
+    Name("Name", "name", false),
+}
 
 /** An entry in a collection's ordered puzzle list (`/puzzles/{id}/collection_summary`), for prev/next. */
 data class PuzzleRef(val id: Long, val name: String)
@@ -72,6 +97,42 @@ fun decodePuzzleStones(packed: String): List<Pair<Int, Int>> =
     packed.chunked(2).mapNotNull { OgsCoord.decode(it) }
 
 /**
+ * Render a collection's difficulty as a rank or rank range ("30k", "30k–5d") from OGS' rank ints,
+ * reusing [formatRank]. Collapses to a single rank when both ends are equal.
+ */
+fun formatDifficulty(minRank: Int, maxRank: Int): String {
+    val lo = formatRank(minRank.toDouble())
+    val hi = formatRank(maxRank.toDouble())
+    return if (lo == hi) lo else "$lo–$hi"
+}
+
+/**
+ * Compact a count the way the OGS puzzle browser does: "893", "1.3K", "48.1K", "5.0M" (one decimal
+ * for K/M, kept even when ".0"). Negatives are clamped to 0.
+ */
+fun formatCount(n: Int): String = when {
+    n < 1_000 -> n.coerceAtLeast(0).toString()
+    n < 1_000_000 -> "%.1fK".format(java.util.Locale.ROOT, n / 1_000.0)
+    else -> "%.1fM".format(java.util.Locale.ROOT, n / 1_000_000.0)
+}
+
+private val SHORT_MONTHS =
+    arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+/**
+ * Render the date portion of an ISO-8601 timestamp ("2025-11-04T08:23:13Z") as "Nov 2025". Returns
+ * an empty string when the input has no parseable yyyy-MM-dd prefix (so the UI can omit it).
+ */
+fun formatPuzzleDate(iso: String): String {
+    val parts = iso.take(10).split("-")
+    if (parts.size != 3) return ""
+    val year = parts[0].toIntOrNull() ?: return ""
+    val month = parts[1].toIntOrNull() ?: return ""
+    if (month !in 1..12 || parts[0].length != 4) return ""
+    return "${SHORT_MONTHS[month - 1]} $year"
+}
+
+/**
  * Parse the `/puzzles/collections/` browse list. Accepts the paginated `{results:[…]}` wrapper or a
  * bare array; entries without an id are skipped. Defaults keep a sparse entry renderable.
  */
@@ -87,6 +148,12 @@ fun parsePuzzleCollections(body: String): List<PuzzleCollection> {
             puzzleCount = o["puzzle_count"]?.jsonPrimitive?.intOrNull ?: 0,
             minRank = o["min_rank"]?.jsonPrimitive?.intOrNull ?: 0,
             maxRank = o["max_rank"]?.jsonPrimitive?.intOrNull ?: 0,
+            rating = o["rating"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+            ratingCount = o["rating_count"]?.jsonPrimitive?.intOrNull ?: 0,
+            viewCount = o["view_count"]?.jsonPrimitive?.intOrNull ?: 0,
+            solvedCount = o["solved_count"]?.jsonPrimitive?.intOrNull ?: 0,
+            created = o["created"].asContent(),
+            ownerName = (o["owner"] as? JsonObject)?.get("username").asTrimmed(),
             startingPuzzleId = starting?.get("id")?.jsonPrimitive?.longOrNull ?: 0L,
             width = starting?.get("width")?.jsonPrimitive?.intOrNull ?: 19,
             height = starting?.get("height")?.jsonPrimitive?.intOrNull ?: 19,

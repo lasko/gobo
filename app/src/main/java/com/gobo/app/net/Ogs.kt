@@ -35,8 +35,13 @@ object Ogs {
     /** Single game detail — authoritative outcome/winner once a game has finished. */
     fun game(gameId: Long) = "$BASE/api/v1/games/$gameId"
 
-    /** Browse list of public puzzle collections (tsumego). Paginated. */
-    const val PUZZLE_COLLECTIONS = "$BASE/api/v1/puzzles/collections/"
+    /**
+     * Browse list of public puzzle collections (tsumego). [ordering] is an OGS sort field
+     * (`rating`, `puzzle_count`, `view_count`, `solved_count`, `created`, `min_rank`, `name`),
+     * prefixed with `-` for descending. Paginated; we pull the first [pageSize] of the sorted list.
+     */
+    fun puzzleCollections(ordering: String, pageSize: Int = 50) =
+        "$BASE/api/v1/puzzles/collections/?ordering=$ordering&page_size=$pageSize"
 
     /** A single puzzle (starting position + solution tree). */
     fun puzzle(id: Long) = "$BASE/api/v1/puzzles/$id"

@@ -31,6 +31,8 @@ class PuzzlesTest {
             """
             {"count":2,"results":[
               {"id":10,"name":"  Tesuji  ","puzzle_count":12,"min_rank":0,"max_rank":34,
+               "rating":4.5,"rating_count":698,"view_count":48098,"solved_count":23400,
+               "created":"2025-11-04T08:23:13Z","owner":{"username":"  Lee  "},
                "starting_puzzle":{"id":555,"width":19,"height":19}},
               {"id":11}
             ]}
@@ -42,11 +44,47 @@ class PuzzlesTest {
         assertEquals(12, cols[0].puzzleCount)
         assertEquals(555L, cols[0].startingPuzzleId)
         assertEquals(34, cols[0].maxRank)
+        assertEquals(4.5, cols[0].rating, 0.0001)
+        assertEquals(698, cols[0].ratingCount)
+        assertEquals(48098, cols[0].viewCount)
+        assertEquals(23400, cols[0].solvedCount)
+        assertEquals("2025-11-04T08:23:13Z", cols[0].created)
+        assertEquals("Lee", cols[0].ownerName) // trimmed
         // Sparse entry falls back to defaults.
         assertEquals("Untitled", cols[1].name)
         assertEquals(0, cols[1].puzzleCount)
         assertEquals(0L, cols[1].startingPuzzleId)
         assertEquals(19, cols[1].width)
+        assertEquals(0.0, cols[1].rating, 0.0001)
+        assertEquals("", cols[1].created)
+        assertEquals("", cols[1].ownerName)
+    }
+
+    // --- display formatters -------------------------------------------------
+
+    @Test
+    fun formatsDifficultyAsRankOrRange() {
+        assertEquals("30k", formatDifficulty(0, 0))   // single rank when both ends equal
+        assertEquals("30k–5d", formatDifficulty(0, 34))
+        assertEquals("5k–1d", formatDifficulty(25, 30)) // rank 30 = 1 dan
+        assertEquals("25k–9k", formatDifficulty(5, 21))
+    }
+
+    @Test
+    fun formatsCreatedDate() {
+        assertEquals("Nov 2025", formatPuzzleDate("2025-11-04T08:23:13Z"))
+        assertEquals("Jun 2015", formatPuzzleDate("2015-06-18"))
+        assertEquals("", formatPuzzleDate(""))       // no date -> omitted
+        assertEquals("", formatPuzzleDate("garbage"))
+    }
+
+    @Test
+    fun compactsCounts() {
+        assertEquals("893", formatCount(893))
+        assertEquals("1.3K", formatCount(1341))
+        assertEquals("48.1K", formatCount(48098))
+        assertEquals("11.1M", formatCount(11125431))
+        assertEquals("0", formatCount(-5))           // clamps negatives
     }
 
     @Test
