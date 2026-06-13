@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -153,14 +154,18 @@ private enum class Destination(val title: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReadyApp(rest: OgsRest, config: UiConfig, settings: SettingsStore, onLogout: () -> Unit) {
-    var gameId by remember { mutableStateOf<Long?>(null) }
+    // Nav state is rememberSaveable so it survives Activity recreation (process death, and any
+    // config change we don't handle ourselves) — reopening a game/puzzle re-runs start(), which
+    // reconnects the socket and resyncs from the gamedata snapshot. (Rotation itself no longer
+    // recreates the Activity; see android:configChanges in the manifest.) (#35)
+    var gameId by rememberSaveable { mutableStateOf<Long?>(null) }
     // True when the open game was opened to watch (read-only) rather than to play.
-    var spectating by remember { mutableStateOf(false) }
+    var spectating by rememberSaveable { mutableStateOf(false) }
     // Non-zero while waiting on an open challenge we posted (drives the keepalive + Cancel).
-    var challengeId by remember { mutableStateOf(0L) }
+    var challengeId by rememberSaveable { mutableStateOf(0L) }
     // Non-null while solving a puzzle (takes over the screen like an open game).
-    var puzzleId by remember { mutableStateOf<Long?>(null) }
-    var destination by remember { mutableStateOf(Destination.Games) }
+    var puzzleId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var destination by rememberSaveable { mutableStateOf(Destination.Games) }
 
     // An open game takes over the whole screen (no drawer) with its own back nav.
     val gid = gameId
@@ -553,55 +558,81 @@ private fun GameBoardBody(
     onTap: (Int, Int) -> Unit,
     actions: @Composable RowScope.() -> Unit,
 ) {
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        val (capturesByBlack, capturesByWhite) = captures
-        // Only the side to move ticks; readClock freezes the other. nowMs is shifted by the
-        // server skew so the countdown tracks the server's clock, not just the device's.
-        val serverNow = nowMs + (clock?.skewMs ?: 0L)
-        val blackClock = clock?.let {
-            formatClock(readClock(it.black, it.currentPlayerId == it.blackPlayerId, it.lastMoveMs, serverNow))
-        }
-        val whiteClock = clock?.let {
-            formatClock(readClock(it.white, it.currentPlayerId == it.whitePlayerId, it.lastMoveMs, serverNow))
-        }
+    val (capturesByBlack, capturesByWhite) = captures
+    // Only the side to move ticks; readClock freezes the other. nowMs is shifted by the
+    // server skew so the countdown tracks the server's clock, not just the device's.
+    val serverNow = nowMs + (clock?.skewMs ?: 0L)
+    val blackClock = clock?.let {
+        formatClock(readClock(it.black, it.currentPlayerId == it.blackPlayerId, it.lastMoveMs, serverNow))
+    }
+    val whiteClock = clock?.let {
+        formatClock(readClock(it.white, it.currentPlayerId == it.whitePlayerId, it.lastMoveMs, serverNow))
+    }
+    val colorLabel = when (myColor) {
+        Stone.BLACK -> "You are playing Black ●"
+        Stone.WHITE -> "You are playing White ○"
+        else -> null
+    }
+
+    // The same pieces, arranged differently per orientation (#35).
+    val tags = @Composable {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             PlayerTag("●", blackName, capturesByBlack, blackClock, clock?.currentPlayerId == clock?.blackPlayerId)
             PlayerTag("○", whiteName, capturesByWhite, whiteClock, clock?.currentPlayerId == clock?.whitePlayerId, alignEnd = true)
         }
-        val colorLabel = when (myColor) {
-            Stone.BLACK -> "You are playing Black ●"
-            Stone.WHITE -> "You are playing White ○"
-            else -> null
-        }
+    }
+    val info = @Composable {
         if (colorLabel != null) {
-            Text(
-                colorLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(colorLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (statusLine != null) {
             Text(
                 statusLine,
-                style = if (emphasizeStatus) MaterialTheme.typography.titleMedium
-                    else MaterialTheme.typography.bodySmall,
-                color = if (emphasizeStatus) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = if (emphasizeStatus) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodySmall,
+                color = if (emphasizeStatus) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(8.dp))
+    }
+    // The board is the same call in both layouts; only the sizing modifier differs (built at the call
+    // site so weight() resolves against the surrounding Row/Column scope).
+    val boardView: @Composable (Modifier) -> Unit = { mod ->
         GoBoard(
             state = board,
+            modifier = mod,
             lastMove = lastMove,
             ghostMove = ghostMove,
             ghostColor = ghostColor,
             invalidCell = invalidCell,
             onTap = onTap,
         )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        if (maxWidth > maxHeight) {
+            // Landscape / wide: board beside a centered info+controls column so nothing is squeezed.
+            Row(Modifier.fillMaxSize()) {
+                boardView(Modifier.weight(1f).fillMaxHeight())
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().padding(start = 16.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    tags()
+                    info()
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
+                }
+            }
+        } else {
+            // Portrait: stacked, the board taking the space between the tags and the action row.
+            Column(Modifier.fillMaxSize()) {
+                tags()
+                info()
+                Spacer(Modifier.height(8.dp))
+                boardView(Modifier.weight(1f).fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), content = actions)
+            }
+        }
     }
 }
 

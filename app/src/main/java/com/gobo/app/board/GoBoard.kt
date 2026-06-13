@@ -2,11 +2,12 @@ package com.gobo.app.board
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -15,6 +16,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import kotlin.math.roundToInt
 
 /**
@@ -88,13 +90,20 @@ fun GoBoard(
 ) {
     val n = state.size
     val colors = LocalBoardColors.current
-    Canvas(
-        modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .padding(16.dp)
-            .pointerInput(n) {
-                detectTapGestures { pos ->
+    // Fit a *square* into whatever space we're handed: the full width in a portrait column, or the
+    // full height when placed beside the controls in landscape. Sizing to min(width, height) (rather
+    // than the old fillMaxWidth().aspectRatio(1f)) keeps the board from overflowing/clipping when the
+    // viewport is wider than it is tall. (#35)
+    BoxWithConstraints(
+        modifier = modifier.padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val side = min(maxWidth, maxHeight)
+        Canvas(
+            modifier = Modifier
+                .size(side)
+                .pointerInput(n) {
+                    detectTapGestures { pos ->
                     val w = size.width.toFloat()
                     val margin = w * MARGIN_FRACTION
                     val cell = (w - 2 * margin) / n
@@ -216,6 +225,7 @@ fun GoBoard(
                     style = Stroke(border * 2f),
                 )
             }
+        }
         }
     }
 }
