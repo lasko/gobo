@@ -40,15 +40,14 @@ jobs:
         id: version
         run: |
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            NAME="${GITHUB_REF_NAME#v}"            # v0.2.0 -> 0.2.0
+            NAME="${GITHUB_REF_NAME#v}"            # v0.2.0 -> 0.2.0 (SemVer)
           else
             NAME="${{ github.event.inputs.version }}"
             [ -z "$NAME" ] && NAME="0.0.0-dev"
           fi
-          # run_number is monotonic across runs of this workflow -> a valid increasing versionCode.
+          # versionCode is derived from versionName in build.gradle.kts, so only the name is injected.
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "Building $NAME (code $GITHUB_RUN_NUMBER)"
+          echo "Building $NAME"
 
       - name: Unit tests + lint
         run: ./gradlew testDebugUnitTest lint --no-daemon
@@ -68,7 +67,6 @@ jobs:
         run: |
           ./gradlew assembleRelease \
             -PversionName=${{ steps.version.outputs.name }} \
-            -PversionCode=${{ steps.version.outputs.code }} \
             --no-daemon
 
       - name: Stage APK
