@@ -8,6 +8,7 @@ import com.gobo.app.net.OgsRest
 import com.gobo.app.net.Puzzle
 import com.gobo.app.net.PuzzleNode
 import com.gobo.app.net.PuzzleStep
+import com.gobo.app.net.puzzleHints
 import com.gobo.app.net.puzzleStep
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,10 @@ class PuzzleViewModel(
 
     private val _lastMove = MutableStateFlow<Pair<Int, Int>?>(null)
     val lastMove = _lastMove.asStateFlow()
+
+    /** Hinted intersection(s) for the current position; empty unless the player asked for a hint. */
+    private val _hint = MutableStateFlow<List<Pair<Int, Int>>>(emptyList())
+    val hint = _hint.asStateFlow()
 
     /** Adjacent puzzles in the same collection (null at the ends), for the prev/next buttons. */
     private val _prevId = MutableStateFlow<Long?>(null)
@@ -94,6 +99,17 @@ class PuzzleViewModel(
         currentNode = p.moveTree
         _status.value = PuzzleStatus.Solving
         _lastMove.value = null
+        _hint.value = emptyList()
+    }
+
+    /**
+     * Toggle the hint highlight for the current position on/off. When on, it marks the move(s) that
+     * progress toward the solution (the non-wrong branches at the current tree node). No-op once the
+     * puzzle is solved/failed — there's nothing left to play.
+     */
+    fun toggleHint() {
+        if (_status.value != PuzzleStatus.Solving) return
+        _hint.value = if (_hint.value.isEmpty()) puzzleHints(currentNode) else emptyList()
     }
 
     /**
@@ -105,6 +121,8 @@ class PuzzleViewModel(
         if (_status.value != PuzzleStatus.Solving) return PuzzleTap.IGNORED
         val opponentColor = if (playerColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
         return when (val step = puzzleStep(currentNode, x, y)) {
+            // An off-tree tap doesn't change the position, so keep any hint showing; otherwise the
+            // board has moved on and the old hint no longer applies.
             PuzzleStep.OffTree -> PuzzleTap.OFF_TREE
             is PuzzleStep.Wrong -> {
                 place(step.playerMove, playerColor)
@@ -125,8 +143,10 @@ class PuzzleViewModel(
         }
     }
 
-    /** Place one stone on a fresh board copy (so the StateFlow emits) and mark it as the last move. */
+    /** Place one stone on a fresh board copy (so the StateFlow emits), mark it as the last move, and
+     *  retire any hint (the position has changed). */
     private fun place(move: Pair<Int, Int>, color: Stone) {
+        _hint.value = emptyList()
         val src = _board.value
         val copy = BoardState(src.size).also { dst ->
             for (row in 0 until src.size) for (col in 0 until src.size) dst.grid[row][col] = src.grid[row][col]

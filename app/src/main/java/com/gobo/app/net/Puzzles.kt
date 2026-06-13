@@ -250,6 +250,14 @@ fun puzzleStep(current: PuzzleNode, x: Int, y: Int): PuzzleStep {
     return PuzzleStep.Continue(x to y, opponent.x to opponent.y, opponent)
 }
 
+/**
+ * The move(s) that progress toward the solution from [current] — every listed branch *not* marked
+ * wrong (a correct/solving move or a correct continuation). Drives the puzzle "hint" highlight.
+ * Empty when the node has no non-wrong continuation listed.
+ */
+fun puzzleHints(current: PuzzleNode): List<Pair<Int, Int>> =
+    current.branches.filter { !it.wrong }.map { it.x to it.y }
+
 private fun resultsArray(body: String): JsonArray? =
     when (val root = puzzleJson.parseToJsonElement(body)) {
         is JsonArray -> root

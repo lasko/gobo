@@ -25,6 +25,7 @@ fun PuzzleScreen(vm: PuzzleViewModel, onBack: () -> Unit, onNavigate: (Long) -> 
     val board by vm.board.collectAsState()
     val status by vm.status.collectAsState()
     val lastMove by vm.lastMove.collectAsState()
+    val hint by vm.hint.collectAsState()
     val prevId by vm.prevId.collectAsState()
     val nextId by vm.nextId.collectAsState()
 
@@ -87,6 +88,7 @@ fun PuzzleScreen(vm: PuzzleViewModel, onBack: () -> Unit, onNavigate: (Long) -> 
                         state = board,
                         lastMove = lastMove,
                         invalidCell = invalidCell,
+                        hintCells = hint,
                         onTap = { x, y ->
                             when (vm.tap(x, y)) {
                                 PuzzleTap.ACCEPTED ->
@@ -104,13 +106,30 @@ fun PuzzleScreen(vm: PuzzleViewModel, onBack: () -> Unit, onNavigate: (Long) -> 
                         OutlinedButton(
                             onClick = { prevId?.let(onNavigate) },
                             enabled = prevId != null,
-                        ) { Text("◀ Prev") }
+                        ) { Text("◀") }
                         // Retry restores the starting position; useful after a wrong move or to redo.
-                        OutlinedButton(onClick = vm::reset) { Text("Retry") }
+                        OutlinedButton(onClick = vm::reset, modifier = Modifier.weight(1f)) { Text("Retry") }
+                        // Hint highlights the move(s) toward the solution; toggles, and only while solving.
+                        val hintOn = hint.isNotEmpty()
+                        val hintLabel = @Composable { Text("💡 Hint") }
+                        if (hintOn) {
+                            FilledTonalButton(
+                                onClick = vm::toggleHint,
+                                modifier = Modifier.weight(1f),
+                                content = { hintLabel() },
+                            )
+                        } else {
+                            OutlinedButton(
+                                onClick = vm::toggleHint,
+                                enabled = status == PuzzleStatus.Solving,
+                                modifier = Modifier.weight(1f),
+                                content = { hintLabel() },
+                            )
+                        }
                         OutlinedButton(
                             onClick = { nextId?.let(onNavigate) },
                             enabled = nextId != null,
-                        ) { Text("Next ▶") }
+                        ) { Text("▶") }
                     }
                     Text(
                         "Tap to place a stone. The opponent replies automatically.",

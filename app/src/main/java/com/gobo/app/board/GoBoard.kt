@@ -31,6 +31,8 @@ data class BoardColors(
     val blackFill: Color,
     val blackBorder: Color?,
     val lastMove: Color,
+    /** Highlight for a hinted intersection (puzzle "show me the move"). */
+    val hint: Color,
 ) {
     companion object {
         val Light = BoardColors(
@@ -44,6 +46,7 @@ data class BoardColors(
             blackFill = Color(0xFF212529),
             blackBorder = null,
             lastMove = Color(0xFF20C997),
+            hint = Color(0xFF37B24D),
         )
         val Dark = BoardColors(
             background = Color(0xFF0F172A),
@@ -54,6 +57,7 @@ data class BoardColors(
             blackFill = Color(0xFF000000),
             blackBorder = Color(0xFF475569),
             lastMove = Color(0xFF06B6D4),
+            hint = Color(0xFF51CF66),
         )
     }
 }
@@ -79,6 +83,7 @@ fun GoBoard(
     ghostMove: Pair<Int, Int>? = null,
     ghostColor: Stone = Stone.EMPTY,
     invalidCell: Pair<Int, Int>? = null,
+    hintCells: List<Pair<Int, Int>> = emptyList(),
     onTap: (x: Int, y: Int) -> Unit,
 ) {
     val n = state.size
@@ -149,6 +154,20 @@ fun GoBoard(
         }
         for (sx in stars) for (sy in stars) {
             drawCircle(colors.gridLine, lineStroke * 1.8f, Offset(origin + sx * cell, origin + sy * cell))
+        }
+
+        // Hint highlight: a translucent green block on the intersection(s) the puzzle wants played.
+        // Drawn under the stones so a stone (if any) still reads on top.
+        for ((hx, hy) in hintCells) {
+            if (hx in 0 until n && hy in 0 until n) {
+                val side = cell * 0.9f
+                drawRect(
+                    colors.hint,
+                    topLeft = Offset(origin + hx * cell - side / 2f, origin + hy * cell - side / 2f),
+                    size = androidx.compose.ui.geometry.Size(side, side),
+                    alpha = 0.55f,
+                )
+            }
         }
 
         // Stones. Radius leaves a small gap between neighbors; borders are applied

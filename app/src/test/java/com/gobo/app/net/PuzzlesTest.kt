@@ -218,6 +218,23 @@ class PuzzlesTest {
     }
 
     @Test
+    fun hintsAreTheNonWrongBranches() {
+        val root = parsePuzzle(sample)!!.moveTree
+        // Root branches: (0,1) wrong + (1,0) continuation -> hint is just the non-wrong one.
+        assertEquals(listOf(1 to 0), puzzleHints(root))
+
+        // A node offering two correct first moves hints both; a wrong one is excluded.
+        val multi = parsePuzzle(
+            """{"id":1,"puzzle":{"move_tree":{"x":-1,"y":-1,"branches":[
+                 {"x":2,"y":2,"correct_answer":true},
+                 {"x":3,"y":3,"branches":""},
+                 {"x":4,"y":4,"wrong_answer":true}
+               ]}}}""",
+        )!!.moveTree
+        assertEquals(listOf(2 to 2, 3 to 3), puzzleHints(multi))
+    }
+
+    @Test
     fun deadEndLineWithoutReplySolves() {
         // A non-wrong, non-correct continuation that has no opponent reply is the end of the line.
         val root = parsePuzzle(
