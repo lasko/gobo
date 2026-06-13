@@ -7,6 +7,7 @@ import com.gobo.app.board.Stone
 import com.gobo.app.net.OgsRest
 import com.gobo.app.net.Puzzle
 import com.gobo.app.net.PuzzleNode
+import com.gobo.app.net.PuzzleOutcome
 import com.gobo.app.net.PuzzleStep
 import com.gobo.app.net.puzzleHints
 import com.gobo.app.net.puzzleStep
@@ -124,20 +125,14 @@ class PuzzleViewModel(
             // An off-tree tap doesn't change the position, so keep any hint showing; otherwise the
             // board has moved on and the old hint no longer applies.
             PuzzleStep.OffTree -> PuzzleTap.OFF_TREE
-            is PuzzleStep.Wrong -> {
-                place(step.playerMove, playerColor)
-                _status.value = PuzzleStatus.Failed
-                PuzzleTap.ACCEPTED
-            }
-            is PuzzleStep.Solved -> {
-                place(step.playerMove, playerColor)
-                _status.value = PuzzleStatus.Solved
-                PuzzleTap.ACCEPTED
-            }
-            is PuzzleStep.Continue -> {
+            is PuzzleStep.Play -> {
                 place(step.playerMove, playerColor)
                 step.opponentMove?.let { place(it, opponentColor) }
-                currentNode = step.next
+                when (step.outcome) {
+                    PuzzleOutcome.SOLVED -> _status.value = PuzzleStatus.Solved
+                    PuzzleOutcome.FAILED -> _status.value = PuzzleStatus.Failed
+                    PuzzleOutcome.CONTINUE -> currentNode = step.next
+                }
                 PuzzleTap.ACCEPTED
             }
         }

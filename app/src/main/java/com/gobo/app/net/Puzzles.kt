@@ -211,52 +211,80 @@ private fun parseMoveNode(o: JsonObject?): PuzzleNode? {
     )
 }
 
+/** Where a [PuzzleStep.Play] leaves the puzzle once its move(s) are on the board. */
+enum class PuzzleOutcome { SOLVED, FAILED, CONTINUE }
+
 /** Outcome of applying a player's tap to the puzzle's current tree node. See [puzzleStep]. */
 sealed interface PuzzleStep {
     /** The tap matched no listed branch — reject it (flash invalid), no state change. */
     data object OffTree : PuzzleStep
 
     /**
-     * A correct, non-terminal move: place [playerMove], then the opponent's [opponentMove]
-     * (null when the line ends without a reply), advancing to [next] for the player's following tap.
+     * The tap matched a branch: place [playerMove], then the opponent's [opponentMove] if it
+     * auto-replied (null otherwise), and apply [outcome] — `CONTINUE` advances to [next] for the
+     * player's following tap; `SOLVED`/`FAILED` end the attempt.
      */
-    data class Continue(
+    data class Play(
         val playerMove: Pair<Int, Int>,
         val opponentMove: Pair<Int, Int>?,
+        val outcome: PuzzleOutcome,
         val next: PuzzleNode,
     ) : PuzzleStep
-
-    /** The solving move: place [playerMove]; the puzzle is solved. */
-    data class Solved(val playerMove: Pair<Int, Int>) : PuzzleStep
-
-    /** A losing move: place [playerMove]; the puzzle is failed (offer a retry). */
-    data class Wrong(val playerMove: Pair<Int, Int>) : PuzzleStep
 }
 
 /**
  * Decide what a player tap at (x, y) does against [current], the active tree node. Pure: it mutates
- * nothing — the caller applies the returned move(s) to its own board (so captures render). A tap
- * matching no branch is [PuzzleStep.OffTree]; a branch marked `wrong` fails; one marked `correct`
- * (or a dead-end line with no reply) solves; otherwise the opponent plays its first listed reply and
- * we advance to that node for the next tap.
+ * nothing — the caller applies the returned move(s) to its own board (so captures render).
+ *
+ * A tap matching no branch is [PuzzleStep.OffTree]. Otherwise the matched node's flag decides the
+ * result — and crucially, `wrong_answer`/`correct_answer` may sit on the **opponent's refuting
+ * reply** one level deeper, not on the player's move (OGS authors them that way), so we evaluate the
+ * opponent's auto-reply too: the player's move is a continuation, the opponent plays its first
+ * listed reply, and if *that* node is wrong the move failed / correct it solved / else play goes on.
  */
 fun puzzleStep(current: PuzzleNode, x: Int, y: Int): PuzzleStep {
     val child = current.branches.firstOrNull { it.x == x && it.y == y } ?: return PuzzleStep.OffTree
-    if (child.wrong) return PuzzleStep.Wrong(x to y)
-    if (child.correct) return PuzzleStep.Solved(x to y)
-    // No marked outcome: the opponent replies with its first listed continuation, if any. A
-    // continuation with no reply is the end of a non-wrong line, which we treat as solved.
-    val opponent = child.branches.firstOrNull() ?: return PuzzleStep.Solved(x to y)
-    return PuzzleStep.Continue(x to y, opponent.x to opponent.y, opponent)
+    if (child.wrong) return PuzzleStep.Play(x to y, null, PuzzleOutcome.FAILED, child)
+    if (child.correct) return PuzzleStep.Play(x to y, null, PuzzleOutcome.SOLVED, child)
+    // No marked outcome on the player's move: the opponent auto-replies with its first listed move.
+    // A move with no reply is the end of a non-wrong line, which we treat as solved.
+    val opp = child.branches.firstOrNull() ?: return PuzzleStep.Play(x to y, null, PuzzleOutcome.SOLVED, child)
+    val outcome = when {
+        opp.wrong -> PuzzleOutcome.FAILED
+        opp.correct -> PuzzleOutcome.SOLVED
+        else -> PuzzleOutcome.CONTINUE
+    }
+    return PuzzleStep.Play(x to y, opp.x to opp.y, outcome, opp)
 }
 
 /**
- * The move(s) that progress toward the solution from [current] — every listed branch *not* marked
- * wrong (a correct/solving move or a correct continuation). Drives the puzzle "hint" highlight.
- * Empty when the node has no non-wrong continuation listed.
+ * The move(s) the player should consider from [current] — the branches from which the player can
+ * still force a solution. Drives the puzzle "hint" highlight. This is a minimax over the tree, not a
+ * shallow "non-wrong branch" filter: `wrong_answer` markers usually sit on the opponent's refuting
+ * reply a level deeper, so a candidate first move only counts if the player survives **every**
+ * opponent reply and can then reach a `correct_answer` (or a non-wrong end of line). Empty when no
+ * branch leads to a solution (e.g. already at a dead/failed node).
  */
 fun puzzleHints(current: PuzzleNode): List<Pair<Int, Int>> =
-    current.branches.filter { !it.wrong }.map { it.x to it.y }
+    current.branches.filter { playerCanWin(it) }.map { it.x to it.y }
+
+/** From this just-played **player** move, can the player still force the solution? Opponent replies
+ *  are adversarial (it gets to pick), so the player must win against *all* of them. */
+private fun playerCanWin(node: PuzzleNode): Boolean = when {
+    node.wrong -> false
+    node.correct -> true
+    node.branches.isEmpty() -> true                       // non-wrong end of line = solved
+    else -> node.branches.all { replyKeepsWin(it) }       // every opponent reply must stay winnable
+}
+
+/** After this **opponent** reply, can the player still reach a solution? The player then gets to
+ *  choose, so any winning continuation suffices. */
+private fun replyKeepsWin(node: PuzzleNode): Boolean = when {
+    node.correct -> true
+    node.wrong -> false
+    node.branches.isEmpty() -> true
+    else -> node.branches.any { playerCanWin(it) }
+}
 
 private fun resultsArray(body: String): JsonArray? =
     when (val root = puzzleJson.parseToJsonElement(body)) {

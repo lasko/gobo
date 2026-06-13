@@ -188,8 +188,11 @@ class PuzzlesTest {
     fun wrongBranchFails() {
         val root = parsePuzzle(sample)!!.moveTree
         val step = puzzleStep(root, 0, 1)
-        assertTrue(step is PuzzleStep.Wrong)
-        assertEquals(0 to 1, (step as PuzzleStep.Wrong).playerMove)
+        assertTrue(step is PuzzleStep.Play)
+        step as PuzzleStep.Play
+        assertEquals(0 to 1, step.playerMove)
+        assertNull(step.opponentMove)
+        assertEquals(PuzzleOutcome.FAILED, step.outcome)
     }
 
     @Test
@@ -197,14 +200,35 @@ class PuzzlesTest {
         val root = parsePuzzle(sample)!!.moveTree
         // (1,0) is a correct continuation; the opponent replies (2,2), advancing to that node.
         val step = puzzleStep(root, 1, 0)
-        assertTrue(step is PuzzleStep.Continue)
-        step as PuzzleStep.Continue
+        assertTrue(step is PuzzleStep.Play)
+        step as PuzzleStep.Play
         assertEquals(1 to 0, step.playerMove)
         assertEquals(2 to 2, step.opponentMove)
+        assertEquals(PuzzleOutcome.CONTINUE, step.outcome)
         // From the opponent's node, the player's solving move is (0,0).
         val solving = puzzleStep(step.next, 0, 0)
-        assertTrue(solving is PuzzleStep.Solved)
-        assertEquals(0 to 0, (solving as PuzzleStep.Solved).playerMove)
+        assertTrue(solving is PuzzleStep.Play)
+        solving as PuzzleStep.Play
+        assertEquals(0 to 0, solving.playerMove)
+        assertEquals(PuzzleOutcome.SOLVED, solving.outcome)
+    }
+
+    @Test
+    fun opponentReplyMarkedWrongFailsTheMove() {
+        // OGS authors many puzzles with the wrong/correct flag on the opponent's *reply*, not the
+        // player's move: (0,2) itself isn't flagged, but the opponent's (1,0) refutation is wrong,
+        // so playing (0,2) fails (placing both stones).
+        val root = parsePuzzle(
+            """{"id":1,"puzzle":{"move_tree":{"x":-1,"y":-1,"branches":[
+                 {"x":0,"y":2,"branches":[{"x":1,"y":0,"wrong_answer":true}]}
+               ]}}}""",
+        )!!.moveTree
+        val step = puzzleStep(root, 0, 2)
+        assertTrue(step is PuzzleStep.Play)
+        step as PuzzleStep.Play
+        assertEquals(0 to 2, step.playerMove)
+        assertEquals(1 to 0, step.opponentMove)
+        assertEquals(PuzzleOutcome.FAILED, step.outcome)
     }
 
     @Test
@@ -214,7 +238,8 @@ class PuzzlesTest {
             """{"id":1,"puzzle":{"move_tree":{"x":-1,"y":-1,"branches":[{"x":3,"y":3,"correct_answer":true}]}}}""",
         )!!.moveTree
         val step = puzzleStep(root, 3, 3)
-        assertTrue(step is PuzzleStep.Solved)
+        assertTrue(step is PuzzleStep.Play)
+        assertEquals(PuzzleOutcome.SOLVED, (step as PuzzleStep.Play).outcome)
     }
 
     @Test
@@ -241,6 +266,30 @@ class PuzzlesTest {
             """{"id":1,"puzzle":{"move_tree":{"x":-1,"y":-1,"branches":[{"x":4,"y":4,"branches":""}]}}}""",
         )!!.moveTree
         val step = puzzleStep(root, 4, 4)
-        assertTrue(step is PuzzleStep.Solved)
+        assertTrue(step is PuzzleStep.Play)
+        assertEquals(PuzzleOutcome.SOLVED, (step as PuzzleStep.Play).outcome)
+    }
+
+    @Test
+    fun hintsFollowTheSolutionThroughDeepRefutations() {
+        // Mirrors the OGS authoring where a bad first move is only revealed wrong by the opponent's
+        // reply. (1,1) leads to a correct line; (0,2) is refuted by the opponent -> only (1,1) hints.
+        val root = parsePuzzle(
+            """{"id":1,"puzzle":{"move_tree":{"x":-1,"y":-1,"branches":[
+                 {"x":1,"y":1,"branches":[
+                   {"x":1,"y":0,"branches":[
+                     {"x":0,"y":1,"branches":[{"x":2,"y":0,"correct_answer":true}]},
+                     {"x":0,"y":0,"branches":[{"x":2,"y":1,"wrong_answer":true}]}
+                   ]}
+                 ]},
+                 {"x":0,"y":2,"branches":[{"x":1,"y":0,"wrong_answer":true}]}
+               ]}}}""",
+        )!!.moveTree
+        // At the root only (1,1) can force the win.
+        assertEquals(listOf(1 to 1), puzzleHints(root))
+        // After (1,1) + opponent (1,0), the hint at that node is the single correct move (0,1) — the
+        // other branch (0,0) leads to a wrong refutation, so it's excluded (the prior-version bug).
+        val afterFirst = (puzzleStep(root, 1, 1) as PuzzleStep.Play).next
+        assertEquals(listOf(0 to 1), puzzleHints(afterFirst))
     }
 }
